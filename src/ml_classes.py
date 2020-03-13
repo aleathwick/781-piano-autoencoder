@@ -60,7 +60,7 @@ class MelDataGenerator(tf.keras.utils.Sequence):
         """Initialization
 
         Arguments:
-        data -- list of ModelDatas
+        data -- list of ModelData objects
 
         Notes:
         -check how you did transposition in your summer project... was it correct?

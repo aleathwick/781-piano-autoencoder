@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import src.midi_utils as midi_utils
+import src.ml_classes as ml_classes
 from collections import namedtuple
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
@@ -87,8 +88,22 @@ def files2note_bin_examples(data_path, filenames, skip = 1, print_cut_events=Tru
     
     return X
 
-def folder2examples(folder):
+def folder2examples(folder, return_ModelData_object=False):
+    """Turn folder of midi files into examples for piano autoencoder
+
+    Arguments:
+
+    Returns:
+
+    Todo:
+    Inputs can also be outputs
+    may not want to store data with input property set... think about that.
+
+    """
+    
     examples = {key: [] for key in ['H', 'O', 'V', 'tempo', 'key']}
+    example_length = 64
+    piano_range = 88
     for file in os.scandir(folder):
         print(' ')
         print(file)
@@ -98,8 +113,13 @@ def folder2examples(folder):
         file_examples = midi_utils.pm2example(pm, key)
         for key, data in file_examples.items():
             examples[key].extend(data)
+    if return_ModelData_object:
+        examples['H'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=True, transposable=True, sparse=True)
+        examples['O'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=True, transposable=True, sparse=True)
+        examples['V'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=False, transposable=True, sparse=True)
+        examples['key'] = ml_classes.ModelData(examples['H'], 'H', shape=(1,), sequential=False, is_input=True, transposable=True, sparse=True)
+        examples['tempo'] = ml_classes.ModelData(examples['H'], 'H', shape=(1,), sequential=False, is_input=True, transposable=False, sparse=False)
     return examples
-        
 
 
 def nb_data2chroma(examples, mode='normal'):
