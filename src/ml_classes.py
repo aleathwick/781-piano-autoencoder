@@ -1,17 +1,65 @@
 import numpy as np
+from scipy.sparse import csc_matrix
 import tensorflow as tf
+
+
+class ModelData():
+    def __init__(self, data, name, shape=(1,), sequential=True, is_input=True, transpose_type=False, sparse=True):
+        """initializer
+
+        Arguments:
+        data -- list of training examples, each of which may be a list, np array, or scipy csc (sparse) array
+        name -- name of input/output
+        shape -- shape of the input, including sequence length
+        sequential -- indicates whether the first number in shape refers to timesteps
+        is_input -- bool, indicating whether data is an input or output
+        transpose_type -- one of False, 'int', or 'concat', describing the method of transposing to be applied
+        sparse -- is the input sparse?
+
+        """
+        self.data = np.array(data)
+        self.name = name
+        self.is_input = is_input
+        self.transpose_type = transpose_type
+        self.is_csc = isinstance(data[0], csc_matrix)
+        self.sparse = self.is_csc or sparse
+        # shape should include sequence length (if part of input shape) + dimension
+        self.shape = shape
+
+        self.batch_data = None
+    
+    def data_generation(self, batch_size, indexes):
+        batch_data = np.empty((batch_size) + self.shape)
+        for i, index in enumerate(indexes):
+            batch_data[i] = self.data[index]
+        self.batch_data = batch_data
+    
+    def transpose(self, index, semitones):
+        if self.transpose_type == False:
+            pass
+        elif self.transpose_type == 'int':
+                self.batch_data[-1] = min(max(self.batch_data[-1] + semitones, 0), 87)
+            ## if it is sequential, should look something like this?
+            # for j in range(self.shape):
+            #         self.batch_data[...,j] = min(max(self.batch_data[...,j] + semitones, 0), 87)
+        elif self.transpose_type == 'concat':
+            if semitones > 0:
+                self.batch_data = np.concatenate((self.batch_data[...,-semitones:], self.batch_data[...,:-semitones]), axis=-1)
+            if semitones < 0:
+                self.batch_data = np.concatenate((self.batch_data[...,-semitones:], self.batch_data[...,:-semitones]), axis=-1)
+        else:
+            raise ValueError("transpose_type must be one of False, 'int', or 'concat'")
+
+        
+
 
 class MelDataGenerator(tf.keras.utils.Sequence):
     """NoteTuple data generator. Can transpose music on the fly, including chroma data."""
-    def __init__(self, input_data, output_data, data_shapes, aux_shapes, chroma=[], batch_size=64, seq_length=64, shuffle=True, augment=True, st = 4, epoch_per_dataset=1):
+    def __init__(self, data, seq_length=64,  batch_size=64, shuffle=True, transpose_on = True, st = 4, epoch_per_dataset=1):
         """Initialization
 
         Arguments:
-        data -- dictionary containing (potentially):
-                -H, O, V, which are list of scipy sparse cscs arrays containing hits, offsets, and velocities for each training examples
-                -chroma
-                -key, a list of integers indicating the key of each example (0-11)
-                -tempo, a list of floats indicating the tempo of each example
+        data -- list of ModelDatas
 
 
         """
@@ -24,16 +72,14 @@ class MelDataGenerator(tf.keras.utils.Sequence):
         -check your transposition below actually works
         '''
 
-        self.input_data = input_data
-        self.output_data = output_data
-        self.data_shapes = data_shapes
+        self.data = data
         self.input_data_batch = {}
         self.output_data_batch = {}
         self.seq_length = seq_length
         self.batch_size = batch_size
         self.shuffle = shuffle
         # if augment is true, data will be randomly transposed
-        self.augment = augment
+        self.transpose_on = transpose_on
         self.on_epoch_end()
         # number of semitones to randomly transpose by
         self.st = st
@@ -44,6 +90,9 @@ class MelDataGenerator(tf.keras.utils.Sequence):
         'Randomly transposes examples up or down by up to self.st semitones'
         for i in range(self.batch_size):
             semitones = np.random.randint(-self.st, (self.st + 1))
+            for model_data in self.data:
+                model_data.transpose(i, semitones)
+
             # if this goes above or below the range of the piano, just use highest or lowest note
             self.input_data_batch['H'][i] = self.__concat_transpose(self.input_data_batch['H'][i], semitones)
 
@@ -76,33 +125,19 @@ class MelDataGenerator(tf.keras.utils.Sequence):
         'Generate one batch of data'
         # Generate indexes of the batch
         indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
-
         # Generate data
         self.__data_generation(indexes)
-        # if chroma has been provided, fetch it
 
         # if augment is on, transpose
-        if self.augment:
+        if self.transpose_on:
             self.__transpose()
 
         return self.input_data_batch, self.output_data_batch
 
     def __data_generation(self, indexes):
         'Generates data containing batch_size samples' # X : (n_samples, Tx)
-        for input_name, data in self.input_data.items():
-            # hopefully this will work, getting the shape like this? 
-            input_data = np.empty((self.batch_size,self.seq_length) + self.data_shapes[input_name])
-            for i, index in enumerate(indexes):
-                # Store sample, leaving off the last time step
-                input_data[i] = data[index]
-            self.input_data_batch[input_name] = input_data
-        for input_name, data in self.output_data.items():
-            # hopefully this will work, getting the shape like this? 
-            input_data = np.empty((self.batch_size,self.seq_length) + self.data_shapes[input_name])
-            for i, index in enumerate(indexes):
-                # Store sample, leaving off the last time step
-                input_data[i] = data[index]
-            self.input_data_batch[input_name] = input_data
+        for model_data in self.data:
+            model_data.data_generation(self.batch_size, indexes)
     
     def on_epoch_end(self):
         'Updates indexes after each epoch'
