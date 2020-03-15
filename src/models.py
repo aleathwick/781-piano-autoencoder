@@ -4,14 +4,18 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras import layers
 
+seq_length = 64
+n_notes = 88
 
-def create_inputs(n_notes=88, seq_length = 32, aux_inputs_dict = {'tempo': 1, 'key': 12}, int_input=True):
+
+def create_inputs(n_notes=n_notes, seq_length = seq_length, aux_inputs_dict = {'tempo': 1, 'key': 12}, int_input=False):
     """create list of inputs (for compiling model) and input for first layer of encoder, if needed converting inputs to OHE
     
     Arguments:
     n_notes -- range of valid notes
+    seq_length = number of timesteps in input
     seq_length -- timesteps in input
-    aux_input_dims -- dimensions of any auxillary inputs, such as key or tempo
+    aux_inputs_dict -- dictionary mapping auxillary input names to dimensions
     int_input -- bool, determining whether or not auxillary inputs will be given as vectors or integers
 
     Returns:
@@ -26,13 +30,12 @@ def create_inputs(n_notes=88, seq_length = 32, aux_inputs_dict = {'tempo': 1, 'k
     """
     
     ### sort out inputs, including taking aux inputs to one hot if needed
-    model_inputs = []
     # add the main input
-    main_input = tf.keras.Input(shape=(seq_length,n_notes), name='mainInput')
+    main_input = tf.keras.Input(shape=(seq_length,n_notes), name='H')
     # list for aux inputs
     aux_inputs = []
     # print([f'{input_name}: {dim}' for input_name, dim in aux_inputs_dict.items()])
-
+    
     if len(aux_inputs_dict) > 0:
         if int_input:
             aux_inputs_expanded = []
@@ -47,18 +50,19 @@ def create_inputs(n_notes=88, seq_length = 32, aux_inputs_dict = {'tempo': 1, 'k
                     aux_inputs_expanded.append(layers.Lambda(lambda x: tf.squeeze(tf.one_hot(tf.cast(x, dtype='int32'), dim), -2), name='makeOneHot')(aux_input))
                 else:
                     aux_inputs_expanded.append(aux_input)
+            raw_inputs = [main_input] + aux_inputs
+            model_inputs = [main_input] + aux_inputs_expanded
+
             
         else:
             # with int_input false, input dimensions are the same as provided in aux_input_dims
-            aux_inputs = [tf.keras.Input(shape=(seq_length, dim), name=input_name) for input_name, dim in aux_inputs_dict.items()]
-    else:
-        x = main_input
-    
-    raw_inputs = [main_input] + aux_inputs
+            aux_inputs = [tf.keras.Input(shape=(dim,), name=input_name) for input_name, dim in aux_inputs_dict.items()]
+            raw_inputs = [main_input] + aux_inputs
+            model_inputs = raw_inputs
 
-    return main_input, aux_inputs, aux_inputs_expanded
+    return raw_inputs, model_inputs
 
-def create_LSTMencoder(main_input, aux_inputs_expanded = [], seq_length = 32, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
+def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
                     dense_size = 256, n_notes=88, aux_input_dims = [1], chroma=False, recurrent_dropout = 0.0):
     """layers for LSTM encoder, returning latent vector as output
     
@@ -70,12 +74,15 @@ def create_LSTMencoder(main_input, aux_inputs_expanded = [], seq_length = 32, ba
     
     """
     # pass input through non final lstm layers, returning sequences each time
-    x = main_input
-    if len(aux_inputs_expanded) != 0:
+    repeated_inputs = []
+    if len(aux_inputs) > 0:
         # layer for repeating aux inputs
         repeat_aux_inputs = layers.RepeatVector(seq_length, name=f'repeat{seq_length}Times')
-        aux_inputs_expanded = [repeat_aux_inputs(i) for i in aux_inputs_expanded]
-        x = layers.concatenate([main_input] + aux_inputs_expanded, name='joinModelInput')
+        repeated_inputs = [repeat_aux_inputs(aux_input) for aux_input in aux_inputs]
+    if len(seq_inputs) + len(repeated_inputs) > 1:
+        x = layers.concatenate(seq_inputs + repeated_inputs, name='joinModelInput')
+    else:
+        x = seq_inputs[0]
     for _ in range(lstm_layers - 1):
         x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
     # pass through final lstm layer
@@ -89,20 +96,16 @@ def create_LSTMencoder(main_input, aux_inputs_expanded = [], seq_length = 32, ba
     
     return z
 
-def create_LSTMdecoder(latent_vector, seq_length=32, latent_size = 256, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256,
-                    dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
-    """creates a simple model
+def create_LSTMdecoder(latent_vector, outputs_raw, seq_length=seq_length,
+                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
+    """creates an LSTM based decoder
     
     Arguments:
     seq_length -- time steps per training example
     hidden_state_size -- size of LSTM hidden state
-    batch_size -- batch size
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
     
     """
-
-    ### sort out inputs, including taking aux inputs to one hot if needed
-    # main_input = tf.keras.Input(shape=(latent_size,))
 
     x = layers.Dense(dense_size, activation='relu')(latent_vector)
     x = layers.RepeatVector(seq_length)(x)
@@ -114,12 +117,11 @@ def create_LSTMdecoder(latent_vector, seq_length=32, latent_size = 256, batch_si
     x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(x)
     
     # attempt to rebuild input
-    H = layers.TimeDistributed(layers.Dense(n_notes, activation='sigmoid', name='sigmoid'), name='H')(x)
-    # attempt to predict offsets and velocities
-    O = layers.TimeDistributed(layers.Dense(n_notes, activation='tanh', name='tanh'), name='O')(x)
-    V = layers.TimeDistributed(layers.Dense(n_notes, activation='sigmoid', name='sigmoid'), name='V')(x)
+    outputs = []
+    for output in outputs_raw:
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
 
-    return H, O, V
+    return outputs
 
 
 def generate_ooremusic(model, num_generate=256, temperature=0.2, input_events=[34,0,0,3,3,16], chroma=False):

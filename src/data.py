@@ -1,6 +1,7 @@
 import pretty_midi
 import numpy as np
 import pandas as pd
+import os
 import pickle
 import src.midi_utils as midi_utils
 import src.ml_classes as ml_classes
@@ -88,7 +89,7 @@ def files2note_bin_examples(data_path, filenames, skip = 1, print_cut_events=Tru
     
     return X
 
-def folder2examples(folder, return_ModelData_object=False):
+def folder2examples(folder, return_ModelData_object=True, sparse=True):
     """Turn folder of midi files into examples for piano autoencoder
 
     Arguments:
@@ -110,16 +111,17 @@ def folder2examples(folder, return_ModelData_object=False):
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
         key = file.path.split('_')[-1].split('.')[0]
-        file_examples = midi_utils.pm2example(pm, key)
+        file_examples = midi_utils.pm2example(pm, key, sparse=sparse)
         for key, data in file_examples.items():
             examples[key].extend(data)
+    print(examples['key'][:20])
     if return_ModelData_object:
-        examples['H'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=True, transposable=True, sparse=True)
-        examples['O'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=True, transposable=True, sparse=True)
-        examples['V'] = ml_classes.ModelData(examples['H'], 'H', shape=(example_length,piano_range), sequential=True, is_input=False, transposable=True, sparse=True)
-        examples['key'] = ml_classes.ModelData(examples['H'], 'H', shape=(1,), sequential=False, is_input=True, transposable=True, sparse=True)
-        examples['tempo'] = ml_classes.ModelData(examples['H'], 'H', shape=(1,), sequential=False, is_input=True, transposable=False, sparse=False)
-    return examples
+        examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid')
+        examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh')
+        examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid')
+        examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
+        examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
+    return [md for md in examples.values()]
 
 
 def nb_data2chroma(examples, mode='normal'):

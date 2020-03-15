@@ -201,7 +201,7 @@ def snap_to_grid(event_time, size=8):
     return int(ms_time)
 
 
-def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4):
+def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
     
     Arguments:
@@ -222,6 +222,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4):
     # Get H, O, V for examples in a midifile
     n_examples = len(pm.get_beats()) // beats_per_ex
     sub_beats_per_ex = sub_beats * beats_per_ex
+    
     # list of list of lists, of shape (n_examples, example length, none), where none is determined by the number of notes at that position
     H = np.zeros((n_examples, sub_beats * beats_per_ex, 88))
     O = copy.deepcopy(H)
@@ -237,7 +238,12 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4):
     notes_sorted = sorted(pm.instruments[0].notes, key = lambda x: x.start)
     current_sub_beat = 0
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
-    
+    sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
+    print('examples:', n_examples)
+    print('sub beats per example:', sub_beats_per_ex)
+    print('no. of sub beats:', len(sub_beat_times))
+
+
     for note in notes_sorted:
         # iterate through sub-beats until we get to the one closest to the note start
         if note.start > sub_beat_times[-1] + max_offset:
@@ -252,20 +258,25 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4):
         O[example,timestep,note.pitch - 21] = (note.start - sub_beat_times[current_sub_beat]) / max_offset
         V[example,timestep,note.pitch - 21] = note.velocity / 127
 
-    tempo = np.array([pm.get_tempo_changes()[-1][0] / 100 - 1 for _ in range(n_examples)])
+    
 
     key_dict = { 'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
                 'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
-    key = np.zeros((n_examples,12))
-    key[:,key_dict[key]] = 1
-    
-    # convert to sparse
-    key = [csc_matrix(k) for k in key]
-    H = [csc_matrix(h) for h in H]
-    O = [csc_matrix(o) for o in O]
-    V = [csc_matrix(v) for v in V]
+    key_int = np.zeros((n_examples,12))
+    key_int[...,key_dict[key]] = 1
 
-    return {'H': H, 'O': O, 'V': V, 'tempo': tempo, 'key': key}
+    # get vector with tempo for each example
+    tempo = np.array([[pm.get_tempo_changes()[-1][0] / 100 - 1] for _ in range(n_examples)])
+    
+    if sparse:
+        key_int = [csc_matrix(k) for k in key_int]
+        H = [csc_matrix(h) for h in H]
+        O = [csc_matrix(o) for o in O]
+        V = [csc_matrix(v) for v in V]
+
+    
+
+    return {'H': H, 'O': O, 'V': V, 'tempo': tempo, 'key': key_int}
 
 
 
