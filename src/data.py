@@ -114,7 +114,6 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True):
         file_examples = midi_utils.pm2example(pm, key, sparse=sparse)
         for key, data in file_examples.items():
             examples[key].extend(data)
-    print(examples['key'][:20])
     if return_ModelData_object:
         examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid')
         examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh')
