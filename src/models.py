@@ -96,6 +96,37 @@ def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch
     
     return z
 
+def create_conv_encoder(h, aux_inputs = [], latent_size = 64):
+    # need to sort out data_format... channels_last, probably, and add extra dimension there
+    # default axis is -1
+    # this is ludicrous that I need to use squeeze here...
+    x = layers.Lambda(lambda k: tf.squeeze(tf.keras.backend.expand_dims(k, axis=-1), axis=0))(h)
+    # x = layers.Lambda(lambda k: k[:,:,tf.newaxis]))(h)
+    x = layers.Conv2D(4, (8,12), strides=(4, 12), padding='same')(x)
+    x = layers.Activation('relu')(x)
+    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+
+    x = layers.Conv2D(6, (4,4), strides=(1, 1), padding='same')(x)
+    x = layers.Activation('relu')(x)
+    # x = layers.MaxPooling2D(pool_size=(3, 3))(x)
+    x = layers.Conv2D(8, (3,3), strides=(1, 1), padding='same')(x)
+    x = layers.Activation('relu')(x)
+    # x = layers.MaxPooling2D(pool_size=(4, 4))(x)
+    # could try seperable conv setting data format to channels first, so that pitch and time weights are learnt separately.
+    # but then stride can't be designated for the channel dimension.
+    # layers.SeparableConv2D(filters, kernel_size, strides=(), )
+    # dilation rate could be used like stride...
+    # x = layers.Conv2D(5, (16,12), dilation_rate=(16, 12), padding='valid')(x)
+
+    flat_x = layers.Flatten()(x)
+    if len(aux_inputs) != 0:
+        flat_x = layers.concatenate([flat_x] + aux_inputs, name='joinModelInput')
+
+    z = layers.Dense(latent_size, activation='relu', name='z')(flat_x)
+
+    return z
+    
+
 def create_LSTMdecoder(latent_vector, outputs_raw, seq_length=seq_length,
                     lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
@@ -123,50 +154,6 @@ def create_LSTMdecoder(latent_vector, outputs_raw, seq_length=seq_length,
 
     return outputs
 
-
-def generate_ooremusic(model, num_generate=256, temperature=0.2, input_events=[34,0,0,3,3,16], chroma=False):
-    # Low temperatures results in more predictable text.
-    # Higher temperatures results in more surprising text.
-    # Experiment to find the best setting.
-    # Number of notes to generate
-    events_generated = []
-    input_events = np.array(input_events)
-
-    # Here batch size == 1
-    model.reset_states()
-
-    # prime the model with the input notes
-    for i, input_event in enumerate(input_events[:-1]):
-        events_generated.append(input_event)
-        # I think I need to do this? batch size of 1...
-        input_event = tf.expand_dims(input_event, 0)
-        input_event = tf.expand_dims(input_event, 0)
-        input_event = tf.expand_dims(input_event, 0)
-        predictions = model(input_event)
-
-
-    input_event = input_events[-1]
-    input_event = np.array(input_event)
-    input_event = tf.expand_dims(input_event, 0)
-    input_event = tf.expand_dims(input_event, 0)
-    input_event = tf.expand_dims(input_event, 0)
-    for i in range(num_generate):
-        prediction = model(input_event)
-
-        # using a categorical distribution to predict the note returned by the model
-        # have to do this for each output attribute of the note
-            # remove the batch dimension
-        prediction = tf.squeeze(prediction, 0)
-        prediction = prediction / temperature
-        predicted_id = tf.random.categorical(prediction, num_samples=1)[-1,0].numpy()
-
-        # We pass the predicted word as the next input to the model
-        # along with the previous hidden state
-        input_event = tf.expand_dims(tf.expand_dims(tf.expand_dims(predicted_id, 0), 0), 0)
-
-        events_generated.append(predicted_id)
-
-    return(events_generated)
 
 
 def plt_metric(history, metric='loss'):

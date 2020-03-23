@@ -201,14 +201,24 @@ def snap_to_grid(event_time, size=8):
     return int(ms_time)
 
 
-def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True):
+key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
+                'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
+int2key = {value: key for key, value in key2int.items()}
+
+def transpose_by_slice(np1, semitones):
+    np1 = np.concatenate((np1[...,-semitones:], np1[...,:-semitones]), axis=-1)
+    return np1
+
+def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
     
     Arguments:
     pm -- pretty midi file
     beats_per_ex -- number of beats per training example, measured in beats according to the midi file
     sub_beats -- number of sub beats used to quantize the training example
-    
+    sparse -- whether or not to use a sparse representation (scipy sparse array)
+    use_base_key -- whether or not to transpose all examples to the same key (C or Am)
+
     Returns:
     H, O, V -- sparse matrices (scipy) of shape (n_examples, beats_per_ex * sub_beats, 88):
             H - note starts
@@ -219,6 +229,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True):
     """
     sustain_only(pm)
     desus(pm)
+
     # Get H, O, V for examples in a midifile
     n_examples = len(pm.get_beats()) // beats_per_ex
     sub_beats_per_ex = sub_beats * beats_per_ex
@@ -239,9 +250,6 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True):
     current_sub_beat = 0
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
     sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
-    print('examples:', n_examples)
-    print('sub beats per example:', sub_beats_per_ex)
-    print('no. of sub beats:', len(sub_beat_times))
 
 
     for note in notes_sorted:
@@ -258,12 +266,18 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True):
         O[example,timestep,note.pitch - 21] = (note.start - sub_beat_times[current_sub_beat]) / max_offset
         V[example,timestep,note.pitch - 21] = note.velocity / 127
 
+    if use_base_key:
+        semitones = -key2int[key]
+        if semitones < -6:
+            semitones += 12
+        if semitones != 0:
+            H = transpose_by_slice(H, semitones)
+            O = transpose_by_slice(O, semitones)
+            V = transpose_by_slice(V, semitones)
+            key = int2key[0]
     
-
-    key_dict = { 'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
-                'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
     key_int = np.zeros((n_examples,12))
-    key_int[...,key_dict[key]] = 1
+    key_int[...,key2int[key]] = 1
 
     # get vector with tempo for each example
     tempo = np.array([[pm.get_tempo_changes()[-1][0] / 100 - 1] for _ in range(n_examples)])
