@@ -17,6 +17,7 @@ def stretch(pm, speed):
         note.start = note.start * speed
         note.end = note.end * speed
 
+######## converting format ########
 
 def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False):
     """Turn folder of midi files into examples for piano autoencoder
@@ -31,7 +32,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
 
     """
     
-    examples = {key: [] for key in ['H', 'O', 'V', 'tempo', 'key']}
+    examples = {key: [] for key in ['H', 'O', 'V', 'R', 'tempo', 'key']}
     example_length = 64
     piano_range = 88
     files = [file for file in os.scandir(folder)]
@@ -49,6 +50,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid')
         examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh')
         examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid')
+        examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, activation='sigmoid')
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
     return examples
@@ -66,6 +68,11 @@ def HOV2pm(md, sub_beats=4):
     H = md['H']
     O = md['O']
     V = md['V']
+    R = np.concatenate((md['R'], np.zeros((1,md['R'].shape[-1]))))
+    print(R.shape)
+    # to use note offs, we keep a record of notes for each pitch that are still sounding
+    notes_sounding = [[] for _ in range(88)]
+
     tempo = (md['tempo']  + 1) * 100
     beat_length = 60 / tempo[0]
     sub_beat_length = beat_length / sub_beats
@@ -76,14 +83,14 @@ def HOV2pm(md, sub_beats=4):
     sub_beat_times = [i + j * sub_beat_length for i in beats for j in range(sub_beats)]
     for timestep in range(len(H)):
         for pitch in np.where(H[timestep] == 1)[0]:
-            note_on = sub_beat_times[timestep] + O[timestep, pitch] * max_offset
-            # for now, everything will just have to be staccato
-            note_off = note_on + sub_beat_length
+            h = sub_beat_times[timestep]
+            note_on = h + O[timestep, pitch] * max_offset
+            # calculating note off: add h to the time until the next 0 in the piano roll
+            note_off = h + np.where(R[timestep:, pitch] == 0)[0][0] * sub_beat_length
             noteM = pretty_midi.Note(velocity=int(V[timestep, pitch] * 127), pitch=pitch+21, start=note_on, end=note_off)
             pm.instruments[0].notes.append(noteM)
     return pm
 
-# generate_midi
 
 def examples2pm(md, sub_beats=4):
     """Turn a random training example into a pretty midi file
@@ -103,6 +110,23 @@ def examples2pm(md, sub_beats=4):
     pm = HOV2pm(md)
     return pm
 
+######## ########
+
+def int_transpose(np1, semitones):
+    """Transpose pitches represented as integers (stored as np array), keeping pitches within piano range"""
+    for idx,value in np.ndenumerate(np1):
+        np1[idx] = min(max(value + semitones, 0), 87)
+    # # slightly slower, and not in place
+    # int_transpose = np.vectorize(lambda x: min(max(x + semitones, 0), 87))
+    # b = np.array([[1,2,3],[3,4,5]])
+    # np1 = int_transpose(np1)
+    # return np1
+
+
+def transpose_by_slice(np1, semitones):
+    """Transpose by slicing off the top semitones rows of an np array, and stick them on the bottom (for pitches represented as indicator variables)"""
+    np1 = np.concatenate((np1[...,-semitones:], np1[...,:-semitones]), axis=-1)
+    return np1
 
 def nb_data2chroma(examples, mode='normal'):
     chroma = np.empty((examples.shape[0], examples.shape[1], 12))
@@ -110,8 +134,11 @@ def nb_data2chroma(examples, mode='normal'):
         if i % 100 == 0:
             print(f'processing example {i} of {len(chroma)}')
         chroma[i,:,:] = nb2chroma(e, mode=mode)
+
     return(chroma)
 
+
+######## pickling ########
 
 def dump_pickle_data(item, filename):
     with open(filename, 'wb') as f:
@@ -121,23 +148,5 @@ def get_pickle_data(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
-def make_one_hot(examples, n_values=333):
-    """ takes in a list of training examples, returns them in one hot format
-    
-    Inputs
-    ----------
-    examples : list
-        should contain training examples, which themselves are lists of events expressed in integers
-    
-    """
-    arr = np.empty((len(examples), len(examples[0]), n_values), dtype=object)
-    for i in range(len(examples)):
-        one_hots = to_categorical(examples[i], num_classes=n_values, dtype='float32')
-        arr[i] = one_hots
-    return arr
 
-def get_max_pred(l):
-    array = np.zeros((1, 1, 333))
-    array[0][0] = to_categorical(np.argmax(l), num_classes=333)
-    return tf.convert_to_tensor(array, dtype=tf.float32)
 

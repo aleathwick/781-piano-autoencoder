@@ -1,6 +1,7 @@
 import pretty_midi
 import numpy as np
 from scipy.sparse import csc_matrix
+import src.data as data
 from collections import namedtuple
 import copy
 
@@ -145,6 +146,7 @@ def roll2chroma(roll, mode='normal'):
 
 # methods for going to roll representation
 def pm2roll(pm):
+    """returns a numpy array of shape (n_notes, 88), containing pitches active when each note is being played"""
     notes = pm.instruments[0].notes
     note_times = [0] * 88
     roll = np.zeros((len(notes), 88))
@@ -153,7 +155,7 @@ def pm2roll(pm):
         note_times[pitchB] = note.off
         for j in range(88):
             if note.start < note_times[j]:
-                chroma_output[i,j] = 1
+                roll[i,j] = 1
     return roll
     
 # method for getting chroma from a single snapshot of sounding notes to chroma
@@ -177,7 +179,7 @@ def sounding2chroma(sounding, mode='normal'):
 ######## different representations and related functions ########
 
 def snap_to_grid(event_time, size=8):
-    """takes an event time (in seconds) and gives it back snapped to a grid with 8ms between each event.
+    """takes an event time (in seconds) and gives it back snapped to a grid.
     I.e. multiples by 1000, then rounds to nearest multiple of 8
     
     Parameters
@@ -201,13 +203,12 @@ def snap_to_grid(event_time, size=8):
     return int(ms_time)
 
 
+
 key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
                 'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
 int2key = {value: key for key, value in key2int.items()}
 
-def transpose_by_slice(np1, semitones):
-    np1 = np.concatenate((np1[...,-semitones:], np1[...,:-semitones]), axis=-1)
-    return np1
+
 
 def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
@@ -220,11 +221,11 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     use_base_key -- whether or not to transpose all examples to the same key (C or Am)
 
     Returns:
-    H, O, V -- sparse matrices (scipy) of shape (n_examples, beats_per_ex * sub_beats, 88):
+    H, O, V, R -- sparse matrices (scipy) of shape (n_examples, beats_per_ex * sub_beats, 88):
             H - note starts
             O - offsets
             V - velocities
-    
+            R - roll (piano roll, indicating sounding notes for each timestep)
     
     """
     sustain_only(pm)
@@ -234,10 +235,11 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     n_examples = len(pm.get_beats()) // beats_per_ex
     sub_beats_per_ex = sub_beats * beats_per_ex
     
-    # list of list of lists, of shape (n_examples, example length, none), where none is determined by the number of notes at that position
+    # initialize np array storage
     H = np.zeros((n_examples, sub_beats * beats_per_ex, 88))
     O = copy.deepcopy(H)
     V = copy.deepcopy(H)
+    R = copy.deepcopy(H)
 
 
     if len(pm.get_tempo_changes()) > 2:
@@ -251,29 +253,40 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
     sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
 
-
+    end_times = np.zeros(88)
     for note in notes_sorted:
+        # update note end times
+        # # could snap to grid, but probably uneccessary?
+        # end = snap_to_grid(note.end, sub_beat_length)
+        # end_times[note.pitch - 21] = max(end_times[note.pitch - 21], end)
+        end_times[note.pitch - 21] = max(end_times[note.pitch - 21], note.end)
         # iterate through sub-beats until we get to the one closest to the note start
         if note.start > sub_beat_times[-1] + max_offset:
             break
         while note.start > (sub_beat_times[current_sub_beat] + max_offset):
+            timestep = current_sub_beat % sub_beats_per_ex
+            example = current_sub_beat // sub_beats_per_ex
+            R[example, timestep, np.where(end_times >= sub_beat_times[current_sub_beat] + max_offset)] = 1
             current_sub_beat += 1
         # calculate example and timestep index of this sub beat
-        example = current_sub_beat // sub_beats_per_ex
         timestep = current_sub_beat % sub_beats_per_ex
+        example = current_sub_beat // sub_beats_per_ex
+        R[example, timestep, np.where(end_times >= sub_beat_times[current_sub_beat] + max_offset)] = 1
         # add information to H, O, and V
         H[example,timestep,note.pitch - 21] = 1
         O[example,timestep,note.pitch - 21] = (note.start - sub_beat_times[current_sub_beat]) / max_offset
         V[example,timestep,note.pitch - 21] = note.velocity / 127
+
 
     if use_base_key:
         semitones = -key2int[key]
         if semitones < -6:
             semitones += 12
         if semitones != 0:
-            H = transpose_by_slice(H, semitones)
-            O = transpose_by_slice(O, semitones)
-            V = transpose_by_slice(V, semitones)
+            H = data.transpose_by_slice(H, semitones)
+            O = data.transpose_by_slice(O, semitones)
+            V = data.transpose_by_slice(V, semitones)
+            R = data.transpose_by_slice(R, semitones)
             key = int2key[0]
     
     key_int = np.zeros((n_examples,12))
@@ -287,144 +300,13 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         H = [csc_matrix(h) for h in H]
         O = [csc_matrix(o) for o in O]
         V = [csc_matrix(v) for v in V]
+        R = [csc_matrix(r) for r in R]
+
 
     
 
-    return {'H': H, 'O': O, 'V': V, 'tempo': tempo, 'key': key_int}
+    return {'H': H, 'O': O, 'V': V, 'R': R, 'tempo': tempo, 'key': key_int}
 
-
-
-def pm2oore(pm):
-    """Create event representation of midi. Must have sustain pedal removed.
-    Will only have one note off for duplicate notes, even if multiple note offs are required.
-
-    333 total possible events:
-    0 - 87: 88 note on events, 
-    88 - 175: 88 note off events
-    176 - 300: 125 time shift events (8ms to 1sec)
-    301 - 332: 32 velocity events
-
-    Parameters:
-    ----------
-    pm : Pretty_Midi
-        pretty midi object containing midi for a piano performance. Must have no sustain pedal.
-
-    Returns:
-    ----------
-    events_with_shifts : list
-        A list of events expressed as numbers between 0 and 332
-
-    """
-    # initially, store these in lists (time, int) tuples, where time is already snapped to 8ms grid,
-    # and integers represent which event has taken place, from 0 to 332
-    note_ons = []
-    note_offs = []
-    velocities = []
-    n_velocities = 32
-    for note in pm.instruments[0].notes:
-        on = snap_to_grid(note.start)
-        note_ons.append((snap_to_grid(note.start), note.pitch - 21)) # -21 because lowest A is note 21 in midi
-        off = snap_to_grid(note.end)
-        note_offs.append((snap_to_grid(note.end), note.pitch - 21 + 88))
-        velocities.append((snap_to_grid(note.start), round(301 + note.velocity * (n_velocities - 1)/127))) #remember here we're mapping velocities to [0,n_velocities - 1]
-
-    # remove duplicate consecutive velocities
-    velocities.sort() #sort by time
-    previous = (-1, -1)
-    new_velocities = []
-    for velocity in velocities:
-        if velocity[1] != previous[1]: # check that we haven't just had this velocity
-            new_velocities.append(velocity)
-        previous = velocity
-    velocities = new_velocities
-
-    # Get all events, sorted by time
-    # For simultaneous events, we want velocity change, then note offs, then note ons, so we
-    # sort first by time, then by negative event number
-    events = note_ons + note_offs + velocities
-    events.sort(key = lambda x: (x[0], -x[1]))
-
-    # add in time shift events. events 176 - 300.
-    events_with_shifts = []
-    previous_time = 0
-    previous_event_no = -1
-    for event in events:
-        difference = event[0] - previous_time # time in ms since previous event
-        previous_time = event[0] # update the previous event
-        if difference != 0:
-            shift = difference / 8 # find out how many 8ms units have passed
-            seconds = int(np.floor(shift / 125)) # how many seconds have passed? (max we can shift at once)
-            remainder = int(shift % 125) # how many more 8ms units do we need to shift?
-            for seconds in range(seconds):
-                events_with_shifts.append(300) # time shift a second
-            if remainder != 0:
-                events_with_shifts.append(remainder + 175)
-        #append the event number only if it is not a repeated note off
-        if 88 <= event[1] <= 175 and event[1] != previous_event_no or event[1] < 88 or event[1] > 175:
-            events_with_shifts.append(event[1]) # append event no. only
-            previous_event_no = event[1]
-    return events_with_shifts        
-
-def oore2pm(events):
-    """Maps from a list of event numbers back to midi.
-
-    333 total possible events:
-    0 - 87: 88 note on events, 
-    88 - 175: 88 note off events
-    176 - 300: 125 time shift events (8ms to 1sec)
-    301 - 332: 32 velocity events
-
-    Parameters:
-    ----------
-    events_with_shifts : list
-        A list of events expressed as numbers between 0 and 332
-
-    Returns:
-    ----------
-    pm : Pretty_Midi
-        pretty midi object containing midi for a piano performance.
-
-    """
-    pm = pretty_midi.PrettyMIDI(resolution=125)
-    pm.instruments.append(pretty_midi.Instrument(0, name='piano'))
-
-    notes_on = [] # notes for which there have been a note on event
-    notes = [] # all the retrieved notes
-    current_time = 0 # keep track of time (in seconds)
-    current_velocity = 0
-
-    for event in events:
-        # sort note ons
-        if 0 <= event <= 87:
-            pitch = event + 21
-            # set attributes of note, with end time as -1 for now
-            note = pretty_midi.Note(current_velocity, pitch, current_time, -1)
-            # add it to notes that haven't had their note off yet
-            notes_on.append(note)
-        # sort note offs
-        elif 88 <= event <= 175:
-            end_pitch = event + 21 - 88
-            new_notes_on = []
-            for note in notes_on:
-                if note.pitch == end_pitch:
-                    note.end = current_time
-                    notes.append(note)
-                else:
-                    new_notes_on.append(note)
-            notes_on = new_notes_on
-        # sort time shifts
-        elif 176 <= event <= 300:
-            shift = event - 175
-            current_time += (shift * 8 / 1000)
-        # sort velocities
-        elif 301 <= event <= 332:
-            rescaled_velocity = np.round((event - 301) / 31 * 127)
-            current_velocity = int(rescaled_velocity)
-    notes.sort(key = lambda note: note.end)
-    # Just in case there are notes for which note off was never sent, I'll clear notes_on
-    
-    pm.instruments[0].notes = notes
-    return pm
 
 
 def pitchM2pitchB(pitchM):
