@@ -203,11 +203,9 @@ def snap_to_grid(event_time, size=8):
     return int(ms_time)
 
 
-
 key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
                 'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
 int2key = {value: key for key, value in key2int.items()}
-
 
 
 def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False):
@@ -229,6 +227,9 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     
     """
     sustain_only(pm)
+    bin_sus(pm)
+    sustain = pm.instruments[0].control_changes
+
     desus(pm)
 
     # Get H, O, V for examples in a midifile
@@ -246,12 +247,24 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         print('Warning: tempo changes present')
     beat_length = 60 / pm.get_tempo_changes()[-1][0]
     sub_beat_length = beat_length / sub_beats
+    
     max_offset = sub_beat_length / 2
     # sort notes by note start - by default they are sorted by note end
     notes_sorted = sorted(pm.instruments[0].notes, key = lambda x: x.start)
     current_sub_beat = 0
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
     sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
+
+    # sort pedal
+    S = np.zeros((n_examples * sub_beats_per_ex, 2))
+    for message in sustain:
+        timestep = int(round(message.time / sub_beat_length))
+        if timestep >= len(S):
+            break
+        action = 1 if message.value > 64 else 0
+        S[timestep,action] = 1
+    S = np.reshape(S, (n_examples, sub_beats_per_ex, 2))
+
 
     end_times = np.zeros(88)
     for note in notes_sorted:
@@ -301,11 +314,12 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         O = [csc_matrix(o) for o in O]
         V = [csc_matrix(v) for v in V]
         R = [csc_matrix(r) for r in R]
+        S = [csc_matrix(s) for s in S]
 
 
     
 
-    return {'H': H, 'O': O, 'V': V, 'R': R, 'tempo': tempo, 'key': key_int}
+    return {'H': H, 'O': O, 'V': V, 'R': R, 'S': S, 'tempo': tempo, 'key': key_int}
 
 
 

@@ -32,7 +32,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
 
     """
     
-    examples = {key: [] for key in ['H', 'O', 'V', 'R', 'tempo', 'key']}
+    examples = {key: [] for key in ['H', 'O', 'V', 'R', 'S', 'tempo', 'key']}
     example_length = 64
     piano_range = 88
     files = [file for file in os.scandir(folder)]
@@ -51,6 +51,8 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh')
         examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid')
         examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, activation='sigmoid')
+        # could change pedal to three indicator variables instead of two
+        examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, activation='sigmoid')
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
     return examples
@@ -68,11 +70,12 @@ def HOV2pm(md, sub_beats=4):
     H = md['H']
     O = md['O']
     V = md['V']
+    # add a column of zeros to the end of the training example, so that notes end sensibly
     R = np.concatenate((md['R'], np.zeros((1,md['R'].shape[-1]))))
-    print(R.shape)
+    S = md['S']
     # to use note offs, we keep a record of notes for each pitch that are still sounding
     notes_sounding = [[] for _ in range(88)]
-
+    # reverse transform tempo. If handling of tempo when generating examples is changed, then this will need to change
     tempo = (md['tempo']  + 1) * 100
     beat_length = 60 / tempo[0]
     sub_beat_length = beat_length / sub_beats
@@ -89,6 +92,14 @@ def HOV2pm(md, sub_beats=4):
             note_off = h + np.where(R[timestep:, pitch] == 0)[0][0] * sub_beat_length
             noteM = pretty_midi.Note(velocity=int(V[timestep, pitch] * 127), pitch=pitch+21, start=note_on, end=note_off)
             pm.instruments[0].notes.append(noteM)
+        # sort pedal
+        if S[timestep, 0] == 1:
+            pm.instruments[0].control_changes.append(pretty_midi.ControlChange(64, 0, sub_beat_times[timestep]))
+        if S[timestep, 1] == 1:
+            pm.instruments[0].control_changes.append(pretty_midi.ControlChange(64, 127, sub_beat_times[timestep]))
+        if S[timestep, 1] == 1 and S[timestep, 0] == 1:
+            print('simultaneous pedal events!')
+
     return pm
 
 
