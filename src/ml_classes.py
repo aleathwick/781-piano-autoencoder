@@ -7,19 +7,19 @@ import tensorflow as tf
 class PianoPiece():
      def __init__(self, pm=None, data_dict=None):
         if pm != None:
-            self.H, self.O, self.V = midi_utils.pm2HOV(pm)
+            self.H, self.O, self.V = midi_utils.pm2example(pm)
         elif data_dict != None:
             self.H = data_dict('H')
         # and so on... probs won't use this 
 
 class ModelData():
-    def __init__(self, data, name, transposable, activation=None):
+    def __init__(self, data, name, transposable, activation=None, seq=False):
         """initializer
 
         Arguments:
         data -- list of training examples, each of which may be a list, np array, or scipy csc (sparse) array
         name -- name of input/output
-        sequential -- indicates whether the first number in shape refers to timesteps
+        seq -- is the data sequential?
         is_input -- bool, indicating whether data is an input or output
         transposable -- indicates whether or not data is transposable
         activation -- activation that should be applied, should this be used as output for a model
@@ -35,9 +35,10 @@ class ModelData():
         if self.shape[0] == 1:
             self.shape = tuple([self.shape[-1]])
         print(self.shape)
-        # dimension of one timestep
+        # int, dimension of one timestep
         self.dim = self.shape[-1]
         self.batch_data = None
+        self.seq = seq
     
     def data_generation(self, indexes):
         self.batch_data = np.empty((len(indexes),) + self.shape)
@@ -119,7 +120,15 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
             self.__transpose()
         
         input_data_batch = {input_data + '_in': self.model_datas[input_data].batch_data for input_data in self.inputs}
+        # include dummy data, to help along LSTMs with no input
+        input_data_batch['dummy'] = np.zeros((self.batch_size,0))
+
+
         output_data_batch = {output_data + '_out': self.model_datas[output_data].batch_data for output_data in self.outputs}
+        # add any teacher forced data
+        for md in self.model_datas.values():
+            if md.seq:
+                input_data_batch[md.name + '_tf'] = np.concatenate([np.zeros((self.batch_size, 1, md.dim)), output_data_batch[md.name + '_out'][:,:-1]], axis=-2)
 
         return input_data_batch, output_data_batch
 

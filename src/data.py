@@ -23,12 +23,15 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     """Turn folder of midi files into examples for piano autoencoder
 
     Arguments:
+    folder -- folder of midi files
+    return_ModelData_object -- choose to return ModelData objects, or arrays
+    sparse -- whether or not data is stored sparsely (scipy csc arrays)
+    beats_per_ex -- in whatever measure of beats the midi files provide
+    sub_beats -- smallest note value, as no. of notes per beat - fineness of grid to use when factoring midi files
+    use_base_key -- if true, transpose all examples to C/Am
 
     Returns:
-
-    Todo:
-    Inputs can also be outputs
-    may not want to store data with input property set... think about that.
+    examples -- dictionary of ModelData objects or arrays
 
     """
     
@@ -47,12 +50,12 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
             examples[key].extend(data)
     
     if return_ModelData_object:
-        examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid')
-        examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh')
-        examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid')
-        examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, activation='sigmoid')
+        examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid', seq=True)
+        examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh', seq=True)
+        examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid', seq=True)
+        examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, activation='sigmoid', seq=True)
         # could change pedal to three indicator variables instead of two
-        examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, activation='sigmoid')
+        examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, activation='sigmoid', seq=True)
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
     return examples
@@ -73,8 +76,7 @@ def HOV2pm(md, sub_beats=4):
     # add a column of zeros to the end of the training example, so that notes end sensibly
     R = np.concatenate((md['R'], np.zeros((1,md['R'].shape[-1]))))
     S = md['S']
-    # to use note offs, we keep a record of notes for each pitch that are still sounding
-    notes_sounding = [[] for _ in range(88)]
+
     # reverse transform tempo. If handling of tempo when generating examples is changed, then this will need to change
     tempo = (md['tempo']  + 1) * 100
     beat_length = 60 / tempo[0]

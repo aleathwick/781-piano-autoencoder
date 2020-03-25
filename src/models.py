@@ -67,6 +67,8 @@ def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:
+    seq_inputs -- inputs that are sequential in nature
+    aux_inputs -- other inputs
     seq_length -- time steps per training example
     hidden_state_size -- size of LSTM hidden state
     batch_size -- batch size
@@ -127,7 +129,7 @@ def create_conv_encoder(h, aux_inputs = [], latent_size = 64):
     return z
     
 
-def create_LSTMdecoder(latent_vector, outputs_raw, seq_length=seq_length,
+def create_LSTMdecoder(latent_vector, model_output_reqs, seq_length=seq_length,
                     lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
     
@@ -149,11 +151,87 @@ def create_LSTMdecoder(latent_vector, outputs_raw, seq_length=seq_length,
     
     # attempt to rebuild input
     outputs = []
-    for output in outputs_raw:
+    for output in model_output_reqs:
         outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
 
     return outputs
 
+
+def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
+                conductors=2, conductor_steps=8, recurrent_dropout=0.0):
+    """create a hierarchical decoder
+
+    Arguments:
+
+    Notes:
+    still need to sort out initial states...
+
+    """
+
+    # calculate conductor substeps ('sub beats')
+    conductor_substeps = int(seq_length / conductor_steps)
+    print('conductor substeps:', conductor_substeps)
+
+    ### conductor operations ###
+
+    # the first layer conductors have no input! We need some dummy input.
+    # dummy input will control the number of conductor time steps
+    repeat_dummy = layers.RepeatVector(conductor_steps, name='dummy_repeater')(dummy_in)
+
+    # get the conductor initial state by passing z through dense layers
+    h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+    c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+    
+    # fire up conductor, getting 'c', the hidden states for the start of each decoder step
+    all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
+
+    ### set up layers for final decoding ###
+
+    # set up decoder lstm
+    decoder_lstm = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)
+
+    # set up dense layers for final output
+    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
+
+    # all decoder (sub step) LSTM operations for step i have c_i passed to them 
+    c_repeater = layers.RepeatVector(conductor_substeps)
+
+    # list for appending outputs at each sub step, one sub list for each output
+    outputs = [[] for i in range(len(output_fns))]
+
+    # need teacher forced inputs (sequential outputs moved right by a sub step)
+    tf_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_tf') for model_output in model_output_reqs if model_output.seq == True]
+    tf_inputs.sort(key=lambda x: x.name)
+    # concatenate teacher forced
+    tf_concat = layers.concatenate(tf_inputs, axis=-1)
+
+    # concatenation layer for joining c repeated with tf input
+    c_tf_concat = layers.concatenate
+
+    ### decoder operations ###
+
+    for i in range(all_c.shape[1]):
+        # get the c_i for the relevant substep
+        c = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(all_c)
+        # repeat for each substep
+        c_repeated = c_repeater(c)
+
+        # append target outputs shifted to the right be a timestep
+        tf_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_tf_{i + 1}')(tf_concat)
+
+        # join c repeated with teach forced input
+        c_tf_step = c_tf_concat([c_repeated, tf_slice])
+
+        # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
+        # repeated c is given as input, and c as the initial state
+        x = decoder_lstm(c_tf_step, initial_state=[c,c])
+        for i in range(len(output_fns)):
+            outputs[i].append(output_fns[i](x))
+
+    final_concat = layers.concatenate
+    outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
+    
+    return outputs, tf_inputs
 
 
 def plt_metric(history, metric='loss'):
