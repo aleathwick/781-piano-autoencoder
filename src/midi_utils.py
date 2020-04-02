@@ -306,7 +306,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     key_int[...,key2int[key]] = 1
 
     # get vector with tempo for each example
-    tempo = np.array([[pm.get_tempo_changes()[-1][0] / 100 - 1] for _ in range(n_examples)])
+    tempo = np.array([[data.normalize_tempo(pm.get_tempo_changes()[-1][0])] for _ in range(n_examples)])
     
     if sparse:
         key_int = [csc_matrix(k) for k in key_int]

@@ -162,6 +162,14 @@ def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_l
     """create a hierarchical decoder
 
     Arguments:
+    z -- latent vector
+    model_output_reqs -- list of named tuples, each containing information about the outputs required
+    dummy_in -- dummy input used for inputless LSTMs
+
+    Returns:
+    outputs -- list of outputs, used for compiling a model
+    tf_inputs -- teacher forced inputs - that is, outputs moved one step to the right
+
 
     Notes:
     still need to sort out initial states...
@@ -227,6 +235,10 @@ def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_l
         x = decoder_lstm(c_tf_step, initial_state=[c,c])
         for i in range(len(output_fns)):
             outputs[i].append(output_fns[i](x))
+
+    
+    
+    
 
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]

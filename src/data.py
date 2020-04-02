@@ -2,6 +2,7 @@ import pretty_midi
 import numpy as np
 import pandas as pd
 import os
+import time
 import pickle
 import src.midi_utils as midi_utils
 import src.ml_classes as ml_classes
@@ -18,6 +19,19 @@ def stretch(pm, speed):
         note.end = note.end * speed
 
 ######## converting format ########
+
+def normalize_tempo(tempo, inverse=False):
+    """tempo needs to be normalized in several places, so this fn is for consistency
+    
+    Arguments:
+    tempo -- int or float to be normalized and centered (or np array of values)
+    inverse -- if true, perform inverse operation
+    """
+    if not inverse:
+        return tempo / 100 - 1
+    else:
+        return (tempo + 1) * 100
+
 
 def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False):
     """Turn folder of midi files into examples for piano autoencoder
@@ -48,6 +62,12 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         file_examples = midi_utils.pm2example(pm, key, sparse=sparse, beats_per_ex=beats_per_ex, sub_beats=sub_beats, use_base_key=use_base_key)
         for key, data in file_examples.items():
             examples[key].extend(data)
+
+    # check out how much training data there is
+    mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))
+    seconds = 60 / mean_bpm * beats_per_ex * len(examples['H'])
+    time.strftime('%Hh %Mm %Ss', time.gmtime(seconds))
+    print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of training data')
     
     if return_ModelData_object:
         examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid', seq=True)
@@ -77,8 +97,8 @@ def HOV2pm(md, sub_beats=4):
     R = np.concatenate((md['R'], np.zeros((1,md['R'].shape[-1]))))
     S = md['S']
 
-    # reverse transform tempo. If handling of tempo when generating examples is changed, then this will need to change
-    tempo = (md['tempo']  + 1) * 100
+    # invert transform tempo. If handling of tempo when generating examples is changed, then this will need to change
+    tempo = normalize_tempo(md['tempo'], inverse=True)
     beat_length = 60 / tempo[0]
     sub_beat_length = beat_length / sub_beats
     max_offset = sub_beat_length / 2
