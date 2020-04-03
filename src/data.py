@@ -32,6 +32,9 @@ def normalize_tempo(tempo, inverse=False):
     else:
         return (tempo + 1) * 100
 
+def filepath2key(filepath):
+    """takes a file path and returns key (relying on the filename convention I've used)"""
+    return filepath.split('_')[-1].split('.')[0]
 
 def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False):
     """Turn folder of midi files into examples for piano autoencoder
@@ -58,7 +61,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
             print(f'processing file {i} of {len(files)}')
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
-        key = file.path.split('_')[-1].split('.')[0]
+        key = filepath2key(file.path)
         file_examples = midi_utils.pm2example(pm, key, sparse=sparse, beats_per_ex=beats_per_ex, sub_beats=sub_beats, use_base_key=use_base_key)
         for key, data in file_examples.items():
             examples[key].extend(data)
