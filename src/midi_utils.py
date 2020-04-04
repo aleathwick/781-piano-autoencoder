@@ -207,6 +207,33 @@ key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,
                 'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
 int2key = {value: key for key, value in key2int.items()}
 
+def center_pm(pm, sub_beats=4):
+    beat_length = 60 / pm.get_tempo_changes()[-1][0]
+    sub_beat_length = beat_length / sub_beats
+    max_offset = sub_beat_length / 2
+    offsets = []
+    # get all offsets (distance to nearest subbeat)
+    for note in pm.instruments[0].notes:
+        # time since last sub beat
+        offset = note.start % sub_beat_length
+        # are we closer to the last sub beat, or next sub beat? 
+        if offset > max_offset:
+            offset = offset - sub_beat_length
+        offsets.append(offset)
+
+    # calculate mean
+    mean_offset = np.mean(offsets)
+
+    # use this to center notes and cc messages
+    for note in pm.instruments[0].notes:
+        note.start -= mean_offset
+        note.end -= mean_offset
+    for cc in pm.instruments[0].control_changes:
+        cc.time -= mean_offset
+
+
+
+
 
 def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
