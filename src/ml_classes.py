@@ -62,8 +62,7 @@ class ModelData():
 
 class ModelDataGenerator(tf.keras.utils.Sequence):
     """NoteTuple data generator. Can transpose music on the fly, including chroma data."""
-
-    def __init__(self, data, inputs, outputs, seq_length=64,  batch_size=32, shuffle=True, transpose_on = True, st = 4, epoch_per_dataset=1):
+    def __init__(self, data, inputs, outputs, t_force=True, seq_length=64,  batch_size=32, shuffle=True, transpose_on = True, st = 4, epoch_per_dataset=1):
         """Initialization
 
         Arguments:
@@ -83,6 +82,8 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         assert set(self.model_datas.keys()) >= set(outputs), "outputs required that had no ModelData objects provided"
         self.inputs = inputs
         self.outputs = outputs
+        # if teacher forcing is on, then more input data needs to be required - the outputs, displaced by one time step
+        self.t_force = t_force
         # dictionary for a batch of data
         self.batch_data = {}
         self.seq_length = seq_length
@@ -126,9 +127,11 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
 
         output_data_batch = {output_data + '_out': self.model_datas[output_data].batch_data for output_data in self.outputs}
         # add any teacher forced data
-        for md in self.model_datas.values():
-            if md.seq:
-                input_data_batch[md.name + '_tf'] = np.concatenate([np.zeros((self.batch_size, 1, md.dim)), output_data_batch[md.name + '_out'][:,:-1]], axis=-2)
+        if self.t_force:
+            for output in self.outputs:
+                if self.model_datas[output].seq:
+                    input_data_batch[self.model_datas[output].name + '_tf'] = np.concatenate([np.zeros((self.batch_size, 1, self.model_datas[output].dim)),
+                                                                                                output_data_batch[self.model_datas[output].name + '_out'][:,:-1]], axis=-2)
 
         return input_data_batch, output_data_batch
 
