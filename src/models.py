@@ -8,61 +8,53 @@ seq_length = 64
 n_notes = 88
 
 
-def create_inputs(n_notes=n_notes, seq_length = seq_length, aux_inputs_dict = {'tempo': 1, 'key': 12}, int_input=False):
-    """create list of inputs (for compiling model) and input for first layer of encoder, if needed converting inputs to OHE
+
+########## Basic Recurrent ##########
+
+def get_inputs(model_input_reqs, seq_length):
+    seq_inputs = [tf.keras.Input(shape=(seq_length,seq_in.dim), name=seq_in.name + '_in') for seq_in in model_input_reqs if seq_in.seq == True]
+    aux_inputs = [tf.keras.Input(shape=(aux_in.dim,), name=aux_in.name + '_in') for aux_in in model_input_reqs if aux_in.seq == False]
+    return seq_inputs, aux_inputs
+
+
+def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, lstm_layers=3, dense_layers=2, LSTM_state_size = 256,
+                    dense_size = 128, n_notes=88, recurrent_dropout = 0.0):
     
-    Arguments:
-    n_notes -- range of valid notes
-    seq_length = number of timesteps in input
-    seq_length -- timesteps in input
-    aux_inputs_dict -- dictionary mapping auxillary input names to dimensions
-    int_input -- bool, determining whether or not auxillary inputs will be given as vectors or integers
+    seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
+    # pass input through non final lstm layers, returning sequences each time
+    repeated_inputs = []
+    if len(aux_inputs) > 0:
+        # layer for repeating aux inputs
+        repeat_aux_inputs = layers.RepeatVector(seq_length, name=f'repeat{seq_length}Times')
+        repeated_inputs = [repeat_aux_inputs(aux_input) for aux_input in aux_inputs]
+    # we might need to concat inputs, if more than 1
+    if len(seq_inputs) + len(repeated_inputs) > 1:
+        x = layers.concatenate(seq_inputs + repeated_inputs, name='joinModelInput')
+    else:
+        x = seq_inputs[0]
+    # pass through all but last lstm layers
+    for _ in range(lstm_layers - 1):
+        x = layers.Bidirectional(layers.LSTM(LSTM_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
+    # pass through final lstm layer
+    x = layers.Bidirectional(layers.LSTM(LSTM_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
 
-    Returns:
-    main_input
-    aux_inputs -- any auxillary inputs, which haven't been expanded to OHE yet
-    aux_inputs_expanded -- any auxillary inputs, now expanded to OHE
+    # pass through non final dense layers
+    for _ in range(dense_layers - 1):
+        x = layers.Dense(dense_size, activation='relu')(x)
 
-    Notes:
-    aux_inputs and aux_inputs_expanded may be the same, if the raw inputs to the model have already been processed so they are OHE,
-    or if only only 1 dimensional inputs are given (on/off inputs, or continuous valued)
+    # pass through final dense layer for output
+    outputs = []
+    for output in model_output_reqs:
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
     
-    """
-    
-    ### sort out inputs, including taking aux inputs to one hot if needed
-    # add the main input
-    main_input = tf.keras.Input(shape=(seq_length,n_notes), name='H')
-    # list for aux inputs
-    aux_inputs = []
-    # print([f'{input_name}: {dim}' for input_name, dim in aux_inputs_dict.items()])
-    
-    if len(aux_inputs_dict) > 0:
-        if int_input:
-            aux_inputs_expanded = []
-            # with int_input true, input shapes will be 1, but then need to be expanded to OHE (if input_dim > 1)
-            aux_inputs = [tf.keras.Input(shape=(1,), name=input_name) for input_name, dim in aux_inputs_dict.items()]
-            for aux_input in aux_inputs:
-                # if the 'aux_input_dims' dimension of the input > 1, assume it needs to be reencoded as one hot
-                # using .split('_')[0] is necessary, because keras will name layers 'name_you_wanted' + '_blah'
-                dim = aux_inputs_dict[aux_input.name.split('_')[0]]
-                if dim > 1:
-                    #cast to int32, make OHE, and remove the aux dimension that results
-                    aux_inputs_expanded.append(layers.Lambda(lambda x: tf.squeeze(tf.one_hot(tf.cast(x, dtype='int32'), dim), -2), name='makeOneHot')(aux_input))
-                else:
-                    aux_inputs_expanded.append(aux_input)
-            raw_inputs = [main_input] + aux_inputs
-            model_inputs = [main_input] + aux_inputs_expanded
+    model = tf.keras.Model(inputs=seq_inputs + aux_inputs, outputs=outputs, name=f'simple_LSTM')
 
-            
-        else:
-            # with int_input false, input dimensions are the same as provided in aux_input_dims
-            aux_inputs = [tf.keras.Input(shape=(dim,), name=input_name) for input_name, dim in aux_inputs_dict.items()]
-            raw_inputs = [main_input] + aux_inputs
-            model_inputs = raw_inputs
+    return model
 
-    return raw_inputs, model_inputs
 
-def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
+########## Encoders ##########
+
+def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
                     dense_size = 256, n_notes=88, aux_input_dims = [1], chroma=False, recurrent_dropout = 0.0):
     """layers for LSTM encoder, returning latent vector as output
     
@@ -76,6 +68,8 @@ def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch
     
     """
     # pass input through non final lstm layers, returning sequences each time
+    seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
+
     repeated_inputs = []
     if len(aux_inputs) > 0:
         # layer for repeating aux inputs
@@ -96,9 +90,12 @@ def create_LSTMencoder(seq_inputs, aux_inputs=[], seq_length = seq_length, batch
     
     z = layers.Dense(latent_size, activation='relu', name='z')(x)
     
-    return z
+    return z, seq_inputs + aux_inputs
 
-def create_conv_encoder(h, aux_inputs = [], latent_size = 64):
+def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64):
+    seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
+    assert len(seq_inputs) == 1, f'There should only be one sequential input, but there are {len(seq_inputs)}'
+    h = seq_inputs[0]
     # need to sort out data_format... channels_last, probably, and add extra dimension there
     # default axis is -1
     # this is ludicrous that I need to use squeeze here...
@@ -126,10 +123,12 @@ def create_conv_encoder(h, aux_inputs = [], latent_size = 64):
 
     z = layers.Dense(latent_size, activation='relu', name='z')(flat_x)
 
-    return z
+    return z, seq_inputs + aux_inputs
     
 
-def create_LSTMdecoder(latent_vector, model_output_reqs, seq_length=seq_length,
+########## Decoders ##########
+
+def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
                     lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
     
@@ -157,14 +156,13 @@ def create_LSTMdecoder(latent_vector, model_output_reqs, seq_length=seq_length,
     return outputs
 
 
-def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
+def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
                 conductors=2, conductor_steps=8, recurrent_dropout=0.0):
     """create a hierarchical decoder
 
     Arguments:
     z -- latent vector
     model_output_reqs -- list of named tuples, each containing information about the outputs required
-    dummy_in -- dummy input used for inputless LSTMs
 
     Returns:
     outputs -- list of outputs, used for compiling a model
@@ -184,6 +182,7 @@ def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_l
 
     # the first layer conductors have no input! We need some dummy input.
     # dummy input will control the number of conductor time steps
+    dummy_in = tf.keras.Input(shape=[0], name='dummy')
     repeat_dummy = layers.RepeatVector(conductor_steps, name='dummy_repeater')(dummy_in)
 
     # get the conductor initial state by passing z through dense layers
@@ -243,8 +242,10 @@ def create_hierarchical_decoder(z, model_output_reqs, dummy_in, seq_length=seq_l
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
     
-    return outputs, tf_inputs
+    return outputs, tf_inputs + [dummy]
 
+
+########## Plotting model output ##########
 
 def plt_metric(history, metric='loss'):
     """plots metrics from the history of a model
