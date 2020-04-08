@@ -3,11 +3,11 @@
 # Edit at https://www.gitignore.io/?templates=visualstudiocode
 
 ### dataset and weights
-/weights/
 /models/
 /training_data/
-/midi/
 *.mid
+*.h5
+*.hdf5
 
 ### Python stuff
 # Byte-compiled / optimized / DLL files

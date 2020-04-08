@@ -18,7 +18,7 @@ def get_inputs(model_input_reqs, seq_length):
 
 
 def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, lstm_layers=3, dense_layers=2, LSTM_state_size = 256,
-                    dense_size = 128, n_notes=88, recurrent_dropout = 0.0):
+                    dense_size = 128, recurrent_dropout = 0.0):
     
     seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
     # pass input through non final lstm layers, returning sequences each time
@@ -55,7 +55,7 @@ def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_l
 ########## Encoders ##########
 
 def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
-                    dense_size = 256, n_notes=88, aux_input_dims = [1], chroma=False, recurrent_dropout = 0.0):
+                    dense_size = 256, recurrent_dropout = 0.0):
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:

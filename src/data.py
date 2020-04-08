@@ -52,7 +52,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
 
     """
     
-    examples = {key: [] for key in ['H', 'O', 'V', 'R', 'S', 'tempo', 'key']}
+    examples = {key: [] for key in ['H', 'O', 'V', 'R', 'S', 'tempo', 'key', 'V_mean']}
     example_length = 64
     piano_range = 88
     files = [file for file in os.scandir(folder)]
@@ -70,7 +70,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))
     seconds = 60 / mean_bpm * beats_per_ex * len(examples['H'])
     time.strftime('%Hh %Mm %Ss', time.gmtime(seconds))
-    print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of training data')
+    print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of data')
     
     if return_ModelData_object:
         examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid', seq=True)
@@ -81,6 +81,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, activation='sigmoid', seq=True)
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
+        examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
     return examples
 
 

@@ -317,7 +317,6 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         O[example,timestep,note.pitch - 21] = (note.start - sub_beat_times[current_sub_beat]) / max_offset
         V[example,timestep,note.pitch - 21] = note.velocity / 127
 
-
     if use_base_key:
         semitones = -key2int[key]
         if semitones < -6:
@@ -328,6 +327,10 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
             V = data.transpose_by_slice(V, semitones)
             R = data.transpose_by_slice(R, semitones)
             key = int2key[0]
+    
+    # get the mean velocity
+    V_mean = np.array([[np.mean(v[np.where(v != 0)])] for v in V])
+    
     
     key_int = np.zeros((n_examples,12))
     key_int[...,key2int[key]] = 1
@@ -343,10 +346,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         R = [csc_matrix(r) for r in R]
         S = [csc_matrix(s) for s in S]
 
-
-    
-
-    return {'H': H, 'O': O, 'V': V, 'R': R, 'S': S, 'tempo': tempo, 'key': key_int}
+    return {'H': H, 'O': O, 'V': V, 'R': R, 'S': S, 'tempo': tempo, 'key': key_int, 'V_mean': V_mean}
 
 
 
