@@ -4,8 +4,7 @@
 
 ### dataset and weights
 /models/
-/training_data/
-*.mid
+# /training_data/
 *.h5
 *.hdf5
 
