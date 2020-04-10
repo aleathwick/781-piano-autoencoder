@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from collections import namedtuple
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras import layers
@@ -7,9 +8,29 @@ from tensorflow.keras import layers
 seq_length = 64
 n_notes = 88
 
-
-
 ########## Basic Recurrent ##########
+
+def get_model_reqs(model_inputs=['H', 'V_mean'], model_outputs=['V']):
+    n_notes=88
+    # I assume that data, aside from the sequential dimentsion, will never have more than 1 dimension
+    model_input = namedtuple('input', 'name dim seq')
+    model_output = namedtuple('output', 'name dim activation seq')
+
+    # model input requirements
+    model_input_reqs_unfiltered = [model_input('H', n_notes, True),
+                                model_input('tempo', 1, False),
+                                model_input('key', 12, False),
+                                model_input('V_mean', 1, False)]
+
+    # model output requirements
+    model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True),
+                                    model_output('O', n_notes, 'tanh', True),
+                                    model_output('V', n_notes, 'sigmoid', True)]
+
+    model_input_reqs = [m_input for m_input in model_input_reqs_unfiltered if m_input.name in model_inputs]
+    model_output_reqs = [m_output for m_output in model_output_reqs_unfiltered if m_output.name in model_outputs]
+
+    return model_input_reqs, model_output_reqs
 
 def get_inputs(model_input_reqs, seq_length):
     seq_inputs = [tf.keras.Input(shape=(seq_length,seq_in.dim), name=seq_in.name + '_in') for seq_in in model_input_reqs if seq_in.seq == True]
@@ -79,14 +100,14 @@ def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, batch_si
         x = layers.concatenate(seq_inputs + repeated_inputs, name='joinModelInput')
     else:
         x = seq_inputs[0]
-    for _ in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
+    for i in range(lstm_layers - 1):
+        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'))(x)
     # pass through final lstm layer
-    x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout))(x)
+    x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name='enc_lstm_final'))(x)
 
     # pass through non final dense layers
-    for _ in range(dense_layers - 1):
-        x = layers.Dense(dense_size, activation='relu')(x)
+    for i in range(dense_layers - 1):
+        x = layers.Dense(dense_size, activation='relu', name=f'enc_dense_{i}')(x)
     
     z = layers.Dense(latent_size, activation='relu', name='z')(x)
     
@@ -157,6 +178,50 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
 
 
 def create_LSTMdecoder_graph2(latent_vector, model_output_reqs, seq_length=seq_length,
+                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
+    """creates an LSTM based decoder
+
+    
+    Arguments:
+    seq_length -- time steps per training example
+    hidden_state_size -- size of LSTM hidden state
+    supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
+
+    Notes:
+    I suppose all that would be needed for prediction, would be to use sequence length of 1, and use predictions as feed in for tf inputs?
+    
+    """
+
+    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
+    # if not stateful:
+    x = layers.RepeatVector(seq_length)(x)
+    
+    # get teacher forced inputs
+    # the model will only be stateful if it is being used for prediction
+    if not stateful:
+        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    else:
+        # if this executes, then the model is being used for prediction, and batch size is 1
+        ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    
+    # pass input through non final lstm layers, returning sequences each time
+    for i in range(lstm_layers - 1):
+        x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}')(x)
+    
+    # concat teacher forced inputs with x
+    # pass through final lstm layer
+    x = layers.concatenate(ar_inputs + [x], axis=-1)
+    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x)
+
+    # attempt to rebuild input
+    outputs = []
+    for output in model_output_reqs:
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
+
+    return outputs, ar_inputs
+
+
+def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_length,
                     lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
     
@@ -170,64 +235,30 @@ def create_LSTMdecoder_graph2(latent_vector, model_output_reqs, seq_length=seq_l
     x = layers.Dense(dense_size, activation='relu')(latent_vector)
     x = layers.RepeatVector(seq_length)(x)
     
-    # get teacher forced inputs
-    tf_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_tf') for model_output in model_output_reqs if model_output.seq == True]
+    # get teacher forced input - only H, this time
+    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name == 'H']
 
     
-
     # pass input through non final lstm layers, returning sequences each time
-    for _ in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
+    for i in range(lstm_layers - 1):
+        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}'))(x)
     
     # concat teacher forced inputs with x
     # pass through final lstm layer
-    layers.concatenate(tf_inputs + [x], axis=-1)
-    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(x)
+    x = layers.concatenate(ar_inputs + [x], axis=-1)
+    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name='dec_lstm_final')(x)
+
+
 
     # attempt to rebuild input
     outputs = []
+    for i in range(seq_length):
+        pass
+
     for output in model_output_reqs:
         outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
 
-    return outputs, tf_inputs
-
-
-    
-
-    def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
-                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
-    """creates an LSTM based decoder
-    
-    Arguments:
-    seq_length -- time steps per training example
-    hidden_state_size -- size of LSTM hidden state
-    supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
-    
-    """
-
-    x = layers.Dense(dense_size, activation='relu')(latent_vector)
-    x = layers.RepeatVector(seq_length)(x)
-    
-    # get teacher forced inputs
-    tf_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_tf') for model_output in model_output_reqs if model_output.seq == True]
-
-    
-
-    # pass input through non final lstm layers, returning sequences each time
-    for _ in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
-    
-    # concat teacher forced inputs with x
-    # pass through final lstm layer
-    layers.concatenate(tf_inputs + [x], axis=-1)
-    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(x)
-
-    # attempt to rebuild input
-    outputs = []
-    for output in model_output_reqs:
-        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
-
-    return outputs
+    return outputs, ar_inputs
 
 
 def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
@@ -240,7 +271,7 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
 
     Returns:
     outputs -- list of outputs, used for compiling a model
-    tf_inputs -- teacher forced inputs - that is, outputs moved one step to the right
+    ar_inputs -- teacher forced inputs - that is, outputs moved one step to the right
 
 
     Notes:
@@ -281,13 +312,13 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     outputs = [[] for i in range(len(output_fns))]
 
     # need teacher forced inputs (sequential outputs moved right by a sub step)
-    tf_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_tf') for model_output in model_output_reqs if model_output.seq == True]
-    tf_inputs.sort(key=lambda x: x.name)
+    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    ar_inputs.sort(key=lambda x: x.name)
     # concatenate teacher forced
-    tf_concat = layers.concatenate(tf_inputs, axis=-1)
+    ar_concat = layers.concatenate(ar_inputs, axis=-1)
 
-    # concatenation layer for joining c repeated with tf input
-    c_tf_concat = layers.concatenate
+    # concatenation layer for joining c repeated with ar input
+    c_ar_concat = layers.concatenate
 
     ### decoder operations ###
 
@@ -298,21 +329,21 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
         c_repeated = c_repeater(c)
 
         # append target outputs shifted to the right be a timestep
-        tf_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_tf_{i + 1}')(tf_concat)
+        ar_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_ar_{i + 1}')(ar_concat)
 
         # join c repeated with teach forced input
-        c_tf_step = c_tf_concat([c_repeated, tf_slice])
+        c_ar_step = c_ar_concat([c_repeated, ar_slice])
 
         # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
         # repeated c is given as input, and c as the initial state
-        x = decoder_lstm(c_tf_step, initial_state=[c,c])
+        x = decoder_lstm(c_ar_step, initial_state=[c,c])
         for i in range(len(output_fns)):
             outputs[i].append(output_fns[i](x))
 
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
     
-    return outputs, tf_inputs + [dummy]
+    return outputs, ar_inputs + [dummy]
 
 
 ########## Plotting model output ##########

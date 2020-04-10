@@ -130,7 +130,7 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         if self.t_force:
             for output in self.outputs:
                 if self.model_datas[output].seq:
-                    input_data_batch[self.model_datas[output].name + '_tf'] = np.concatenate([np.zeros((self.batch_size, 1, self.model_datas[output].dim)),
+                    input_data_batch[self.model_datas[output].name + '_ar'] = np.concatenate([np.zeros((self.batch_size, 1, self.model_datas[output].dim)),
                                                                                                 output_data_batch[self.model_datas[output].name + '_out'][:,:-1]], axis=-2)
 
         return input_data_batch, output_data_batch
