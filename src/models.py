@@ -156,6 +156,42 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
     return outputs
 
 
+def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
+                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
+    """creates an LSTM based decoder
+    
+    Arguments:
+    seq_length -- time steps per training example
+    hidden_state_size -- size of LSTM hidden state
+    supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
+    
+    """
+
+    x = layers.Dense(dense_size, activation='relu')(latent_vector)
+    x = layers.RepeatVector(seq_length)(x)
+    
+    # get teacher forced inputs
+    tf_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_tf') for model_output in model_output_reqs if model_output.seq == True]
+
+    
+
+    # pass input through non final lstm layers, returning sequences each time
+    for _ in range(lstm_layers - 1):
+        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout))(x)
+    
+    # concat teacher forced inputs with x
+    # pass through final lstm layer
+    layers.concatenate(tf_inputs + [x], axis=-1)
+    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(x)
+
+    # attempt to rebuild input
+    outputs = []
+    for output in model_output_reqs:
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
+
+    return outputs
+
+
 def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
                 conductors=2, conductor_steps=8, recurrent_dropout=0.0):
     """create a hierarchical decoder
@@ -234,10 +270,6 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
         x = decoder_lstm(c_tf_step, initial_state=[c,c])
         for i in range(len(output_fns)):
             outputs[i].append(output_fns[i](x))
-
-    
-    
-    
 
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]

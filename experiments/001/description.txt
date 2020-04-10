@@ -1,0 +1,14 @@
+no: 1
+model_inputs: ['H', 'V_mean']
+model_outputs: ['V']
+seq_length: 32
+use_base_key: True
+transpose: False
+st: 0
+hidden_state: 256
+lstm_layers: 2
+dense_layers: 1
+dense_size: 128
+learning rate: 0.001
+epochs: 100
+monitor: loss

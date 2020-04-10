@@ -35,11 +35,11 @@ dense_size = 128
 
 # training params
 lr = 0.001
-epochs=2
+epochs=100
 monitor = 'loss'
 
 # get the max folder index
-no = max([int(name.split('_')[0]) for name in os.listdir('experiments') if len(name.split('_')[0]) == 3]) + 1
+no = max([0] + [int(name.split('_')[0]) for name in os.listdir('experiments') if len(name.split('_')[0]) == 3]) + 1
 path = f'experiments/{no:03d}/'
 os.mkdir(path)
 
@@ -70,8 +70,8 @@ with open(f'{path}description.txt', 'w') as f:
 
 # get training data
 assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-model_datas_train = data.folder2examples('training_data\midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
-model_datas_val = data.folder2examples('training_data\midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+model_datas_train = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+model_datas_val = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 
 # assemble input/output reqs
 n_notes=88
@@ -109,7 +109,7 @@ seq_model = models.create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, s
 seq_model.summary()
 
 # save a plot of the model
-tf.keras.utils.plot_model(seq_model, to_file=f'{path}model_plot.png')
+# tf.keras.utils.plot_model(seq_model, to_file=f'{path}model_plot.png')
 
 dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
                                     [model_in.name for model_in in model_input_reqs],
