@@ -73,21 +73,7 @@ assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
 model_datas_train = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 model_datas_val = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 
-# assemble input/output reqs
-n_notes=88
-# I assume that data, aside from the sequential dimentsion, will never have more than 1 dimension
-model_input = namedtuple('input', 'name dim seq')
-model_output = namedtuple('output', 'name dim activation seq')
-
-# model input requirements
-model_input_reqs_unfiltered = [model_input('H', n_notes, True), model_input('tempo', 1, False), model_input('key', 12, False), model_input('V_mean', 1, False)]
-model_input_reqs = [m_input for m_input in model_input_reqs_unfiltered if m_input.name in model_inputs]
-assert len(model_input_reqs) == len(model_inputs), f'inputs {model_inputs} required, but not all input names are valid. Available inputs: {[i.name for i in model_input_reqs_unfiltered]}'
-
-# model output requirements
-model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True), model_output('O', n_notes, 'tanh', True), model_output('V', n_notes, 'sigmoid', True)]
-model_output_reqs = [m_output for m_output in model_output_reqs_unfiltered if m_output.name in model_outputs]
-assert len(model_output_reqs) == len(model_outputs), f'outputs {model_outputs} required, but not all outputs names are valid. Available outputs: {[i.name for i in model_input_reqs_unfiltered]}'
+model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
 for i, model_input in enumerate(model_input_reqs):
     print(f'input {i}: {model_input.name}')

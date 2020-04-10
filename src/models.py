@@ -75,8 +75,8 @@ def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_l
 
 ########## Encoders ##########
 
-def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, batch_size=128, lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, latent_size = 256,
-                    dense_size = 256, recurrent_dropout = 0.0):
+def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, lstm_layers = 3, dense_layers = 2, hidden_state_size = 512, latent_size = 256,
+                    dense_size = 512, recurrent_dropout = 0.0):
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:
@@ -84,7 +84,6 @@ def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, batch_si
     aux_inputs -- other inputs
     seq_length -- time steps per training example
     hidden_state_size -- size of LSTM hidden state
-    batch_size -- batch size
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
     
     """
@@ -150,7 +149,7 @@ def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64)
 ########## Decoders ##########
 
 def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
-                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
+                    lstm_layers = 2, dense_layers = 2, hidden_state_size = 512, dense_size = 512, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
     
     Arguments:
@@ -178,7 +177,7 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
 
 
 def create_LSTMdecoder_graph2(latent_vector, model_output_reqs, seq_length=seq_length,
-                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
+                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
     """creates an LSTM based decoder
 
     
