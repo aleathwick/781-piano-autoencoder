@@ -33,9 +33,10 @@ lstm_layers = 2
 dense_layers = 1
 dense_size = 512
 latent_size = 256
+batch_size = 128
 
 # training params
-lr = 0.001
+lr = 0.0001
 epochs=100
 monitor = 'loss'
 
@@ -67,6 +68,7 @@ with open(f'{path}description.txt', 'w') as f:
     f.write(f'learning rate: {lr}\n')
     f.write(f'epochs: {epochs}\n')
     f.write(f'monitor: {monitor}\n')
+    f.write(f'batch_size: {batch_size}\n')
     
 
 
@@ -97,7 +99,7 @@ seq_model = models.create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, s
 seq_model.summary()
 
 
-z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size)
+z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size, seq_length=seq_length)
 pred, ar_inputs = models.create_LSTMdecoder_graph2(z, model_output_reqs, seq_length=seq_length, hidden_state_size = hidden_state, dense_size=dense_size)
 
 autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
@@ -110,16 +112,16 @@ autoencoder.summary()
 dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
                                     [model_in.name for model_in in model_input_reqs],
                                     [model_out.name for model_out in model_output_reqs],
-                                    t_force=False, batch_size = 30, seq_length=seq_length)
+                                    t_force=True, batch_size = batch_size, seq_length=seq_length)
 
 dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
                                     [model_in.name for model_in in model_input_reqs],
                                     [model_out.name for model_out in model_output_reqs],
-                                    t_force=False, batch_size = 30, seq_length=seq_length)
+                                    t_force=True, batch_size = batch_size, seq_length=seq_length)
 
 opt = tf.keras.optimizers.Adam(learning_rate=lr)
 autoencoder.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
-history = autoencoder.fit_generator(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
+history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
 # save the model weights and history
 autoencoder.save_weights(f'{path}model{no}.h5')
