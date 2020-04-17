@@ -37,6 +37,7 @@ dense_size = 128
 lr = 0.001
 epochs=100
 monitor = 'loss'
+loss = 'binary_crossentropy' 
 
 # get the max folder index
 no = max([0] + [int(name.split('_')[0]) for name in os.listdir('experiments') if len(name.split('_')[0]) == 3]) + 1
@@ -65,6 +66,10 @@ with open(f'{path}description.txt', 'w') as f:
     f.write(f'learning rate: {lr}\n')
     f.write(f'epochs: {epochs}\n')
     f.write(f'monitor: {monitor}\n')
+    if callable(loss):
+        f.write(f'loss: {loss.__name__}\n')
+    else:
+        f.write(f'loss: {loss}\n')
     
 
 
@@ -73,7 +78,7 @@ assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
 model_datas_train = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 model_datas_val = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 
-model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
+model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
 for i, model_input in enumerate(model_input_reqs):
     print(f'input {i}: {model_input.name}')
@@ -108,7 +113,7 @@ dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
                                     t_force=False, batch_size = 30, seq_length=seq_length)
 
 opt = tf.keras.optimizers.Adam(learning_rate=lr)
-seq_model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+seq_model.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
 history = seq_model.fit_generator(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
 # save the model weights and history
