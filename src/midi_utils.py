@@ -204,7 +204,7 @@ def snap_to_grid(event_time, size=8):
 
 
 key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,'F':5,'Dm':5,'F#':6,'D#m':6,'Gb':6,'Ebm': 6,
-                'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#':11}
+                'G':7,'Em':7,'Ab':8,'Fm':8,'A':9,'F#m':9,'Bb':10,'Gm':10,'B':11,'G#m':11}
 int2key = {value: key for key, value in key2int.items()}
 
 def center_pm(pm, sub_beats=4):
