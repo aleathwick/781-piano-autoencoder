@@ -26,13 +26,25 @@ The authors of GrooVAE had another approach (in a very different context to clas
   
 The exact timings of the beats (and sub beats - allowing each note to be divided into four) are known - and the notes as played by the drummers can then be assigned to the closest sub beat to which they fall. If the drummers are playing very 'tight' and accurately, then the notes will not fall very far away from the sub beats at all, and this process will be smooth. If a drummer is playing sloppily, then sometimes notes may be assigned to the wrong sub beat. This could seriously misinform a learning algorithm about the correlations between velocity and sub beat - the first sub beat of a beat is normally the strongest, and such errors in the training data could lead, for example, to strong drum hits that fall on the first sub beat to be assigned to the second sub beat.  
   
-Drums recorded in this way can be factored into several matrices, each of them of dimension t\*n, where t is the number of time steps (measured in sub beats), and n is the number of drums:
+Drums recorded in this way can be factored into several matrices, each of them of dimension Tn\*Dn, where Tn is the number of time steps (measured in sub beats), and Dn is the number of drums:
 
-* H, the matrix showing what drums were hit at what times (which beat and which sub beat), with a 1 indicating a hit, and a 0 indicating no hit
-* V, like H, but with values in \[0, 1\] indicating the velocities of hits
+* H, Hits: the matrix showing what drums were hit at what times (which beat and which sub beat), with a 1 at position (Ti, Dj) indicating a hit on the jth drum at time i, and a 0 indicating no hit.
+* V, Velocities: like H, but instead of ones indicating hits, this matrix contains values in \[0, 1\] indicating the velocities of those hits.
+* O, Offsets: like V, but contains values in \[-0.5,0.5\], indicating time (measured in the smallest sub beat unit) to the closest sub beat.  
+  
+The primary prediction task is predicting V and O, given H. This prediction task, if accomplished successfuly, is of great use, for example to those in amateur music production who do not have access to a drummer.
   
 ## Data
-In a similar vein to GrooVAE, one of the contributions of this project is a data set of piano playing, recorded to a meteronome. 
+In a similar vein to GrooVAE, one of the contributions of this project is a data set of light popular style piano music recorded to a meteronome. This way, no music score is needed to assign each note to its proper beat and sub beat. I improvised the music myself on a digital piano, sometimes sticking to preset chord progressions, sometimes moving freely.  
+  
+### Potential issues
+Compared to the drum dataset, there are some issues that arise when creating a piano dataset in this way:
+
+* **Drums vs notes**: There were only 9 unique drums used in the final dataset for GrooVAE, but the piano has 88 keys. Furthermore, while each drum of a drum kit has its own idiomatic function (which may change according to musical style), each note of a piano may take on a very different function depending on the key the music is written in alone, not to mention its place in relation to the currently used register (e.g. bottom third of the keys, or middle third of the keys). The same note may contribute tension or relaxation to a phrase, depending on the context. Therefore, identifying the role of a note in piano music requires much more complex reasoning about context than does drum music.
+* **Note durations**: Drum music does not have note durations, but piano music does. In a piano score, notes not only have a starting beat and sub beat, but also an ending sub beat. In this piano dataset, the note-starts are precisely what one would expect to see in the musical score of the improvisations, but the note-ends are not. Although the note-starts in the data set can be moved to the closest sub beat and treated like a musical score (because they were played with a meteronome), the note ends were not placed so precisely - and therefore any models trained using this dataset predict a humanized version of the score will only be able to utilize the note-starts to make this prediction. Note-ends as found in a score are a factor that inform the interpretation of the music by the pianist; a musical score may indicate quite clearly that *this* note is meant be ended quite early, long before *that* note starts.
+* **Durations again**: predicting the velocities and offsets, as achieved in drum music, is not enough to produce a convincing performance of a score. The lengths of the notes are a vital part of the interpretation of a pianist.
+* **Phrase length**: Drum music often operates in phrases two bars long, with an established pattern that repeats over and over. An autoencoder (autoencoders are excellent at finding lower dimensional representations of complex data), as used in GrooVAE, can thus sensibly work with a two bar phrase. Piano phrases are often longer, more varied, and it is therefore a more complex task to find a meaningful lower dimensional space that encapsulates piano phrases.
+* **Potential lack of data**: the above issues, particurly regarding phrase length and number of notes, may result in a much larger dataset being needed than used in the GrooVAE project. This will have to be investigated - it may be that the quantity of data I am able to record is a bottleneck!
 
 
 Models:
