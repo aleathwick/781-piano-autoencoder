@@ -6,7 +6,7 @@ The inspiration for this project is [Google's GrooVAE class of models](https://m
 ### Improvisation vs Performance
 When building models that make musical predictions, we could pursue a purely generative model, in which a stream of notes, along with their timings, velocities (how hard they are struck), and durations are produced, one after the other. This is like asking an algorithm to **improvise** music. The MAESTRO dataset is a large collection of streams of notes, and is an effective resource for modelling the distribution of a note given the notes that have come before. But we may already have a set of notes and timings in mind - for example, a musical score, written by any composer you care to name - and we lack the velocities and fluctuations in timing that make a performance human, and would like a model to predict that for us. That is conditioned on notes and their attributes, predict some other attributes - this is what humans do when the **perform** a piece of music.  
   
-### A breif explanation of rhythm
+### A brief explanation of rhythm
 Musical attributes can be divided roughly into pitch and rhythm, and for every note in a musical score, it is these two attributes that would be defined, leaving a human (or algorithm) to determine other note attributes (velocity, tempo fluctuations, rhythmic subtleties). Pitch is easy to recover from a dataset like MAESTRO, but rhythm is decidedly more difficult.  
   
 The absolute timings of notes (in ms) are recorded, but normally a score contains information on what phrase, bar, beat, and sub-beat a note belongs to, all of which has a bearing on a notes importance and relationship to other notes. It is all rather recursive, like russian dolls. It is arranged like so:
@@ -46,15 +46,21 @@ Compared to the drum dataset, there are some issues that arise when creating a p
 * **Phrase length**: Drum music often operates in phrases two bars long, with an established pattern that repeats over and over. An autoencoder (autoencoders are excellent at finding lower dimensional representations of complex data), as used in GrooVAE, can thus sensibly work with a two bar phrase. Piano phrases are often longer, more varied, and it is therefore a more complex task to find a meaningful lower dimensional space that encapsulates piano phrases.
 * **Potential lack of data**: the above issues, particurly regarding phrase length and number of notes, may result in a much larger dataset being needed than used in the GrooVAE project. This will have to be investigated - it may be that the quantity of data I am able to record is a bottleneck!
 
+### Midi files
+Midi files are recorded and then placed in `training_data/midi_train/`. Midi files are manipulated using the [pretty midi package](https://github.com/craffel/pretty-midi), which itself uses [Mido](https://github.com/mido/mido). Mido is lower level, and represents all midi events using relative timings, i.e. time since last midi event. Pretty midi stores things using their absolute time in seconds.
 
+Filenames are formatted as follows: in `as_79_D.mid`, `as` is a counter (aa, ab, ac, ad, etc...) that gives every file a unique ID. `79` indicates the tempo in beats per minute, and `D` indicates the key of the piece (24 possible keys, an `m` suffix indicates the key is a minor key. No `m` suffix indicates a major key).  
+  
+
+### Code
 Models:
 initial_exploration.ipynb has lots of fiddling around with data and models, and src/models.py has some models that are set up. This includes a simple encoder/decoder setups (hierarchical, sequential, and convolutional) that perform the operation:
 robotic input -> lower dimensional 'latent vector' -> reassemble a humanized version of input given the latent vector
 
 Data:
-src/ml_classes.py has the class I'm using to store data for feeding into the model, and src/data.py has the code for producing examples given midi data (midi comes from the output of my digital piano). I'm opting for sparse matrices using the scipy package, which saves a huge amount of space. I've just uploaded some of the training data, split into training examples 64 timesteps long (stored as numpy arrays, serialized as python pickle files) . This consists of:
-H - matrix of shape 301 training examples x 64 timesteps x 88 notes. Ones indicate note starts (the note 'hits', hence 'H')
-O - matrix of shape 301 training examples x 64 timesteps x 88 notes. The same as H, except instead of ones, there is a real value indicting how far away from the true beat that note was played (the note's 'offset', hence 'O').
-V - matrix of shape 301 training examples x 64 timesteps x 88 notes. Real values indicating the velocity with which each note was played.
-key - 301 training examples x 12 keys. Indicator variable, indicating which of the twelve possible keys the training example is in.
-tempo - 301 training examples x 1. Real value for each training example, indicating the tempo it was played at (faster or slower). I normalized it so it is somewhere between -1 and 1, but this was done quite arbitrarily.
+src/ml_classes.py has the class I'm using to store data for feeding into the model, and src/data.py has the code for producing examples given midi data (midi comes from the output of my digital piano). I'm opting for sparse matrices using the scipy package, which saves a huge amount of space. Training data, when processed, is factored into various matrices, mostly of dimension timesteps \* notes. For example, using 64 timesteps, a single training example from the processed data is as follows:
+H (hits) - matrix of shape 64 timesteps x 88 notes. Ones indicate note starts.
+O (offsets) - matrix of shape 4 timesteps x 88 notes. The same as H, except instead of ones, there is a real value indicting how far away from the true beat that note was played.
+V (velocities) - matrix of shape 64 timesteps x 88 notes. Real values indicating the velocity with which each note was played.
+key - 12 indicator variables, indicating which of the twelve possible keys the training example is in.
+tempo - real value for each training example, indicating the tempo it was played at (faster or slower). I normalized it so it is somewhere between -1 and 1, but this was done quite arbitrarily.
