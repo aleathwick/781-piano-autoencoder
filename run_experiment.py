@@ -39,11 +39,13 @@ def my_config():
     dense_layers = 1
     dense_size = 128
 
+
     # training params
     lr = 0.0001
     epochs=2
     monitor = 'loss'
     loss = 'categorical_crossentropy' 
+
 
 # get the max folder index
 no = max([0] + [int(name.split('_')[0]) for name in os.listdir('experiments') if len(name.split('_')[0]) == 3]) + 1
