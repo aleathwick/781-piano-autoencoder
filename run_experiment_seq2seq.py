@@ -33,12 +33,14 @@ lstm_layers = 2
 dense_layers = 1
 dense_size = 512
 latent_size = 256
-batch_size = 128
+batch_size = 64
 
 # training params
 lr = 0.0001
-epochs=100
+epochs = 90
 monitor = 'loss'
+clipvalue = 1
+loss = 'categorical_crossentropy' 
 
 # get the max folder index
 no = max([0] + [int(name.split('_')[0]) for name in os.listdir('experiments') if len(name.split('_')[0]) == 3]) + 1
@@ -48,28 +50,32 @@ os.mkdir(path)
 
 # save text file with the basic parameters used
 with open(f'{path}description.txt', 'w') as f:
-    f.write(f'no: {no}\n')
+    f.write(f'no = {no}\n')
     # data params
-    f.write(f'model_inputs: {model_inputs}\n')
-    f.write(f'model_outputs: {model_outputs}\n')
-    f.write(f'seq_length: {seq_length}\n')
-    f.write(f'use_base_key: {use_base_key}\n')
-    f.write(f'transpose: {transpose}\n')
-    f.write(f'st: {st}\n')
+    f.write(f'model_inputs = {model_inputs}\n')
+    f.write(f'model_outputs = {model_outputs}\n')
+    f.write(f'seq_length = {seq_length}\n')
+    f.write(f'use_base_key = {use_base_key}\n')
+    f.write(f'transpose = {transpose}\n')
+    f.write(f'st = {st}\n')
 
     # network params
-    f.write(f'hidden_state: {hidden_state}\n')
-    f.write(f'lstm_layers: {lstm_layers}\n')
-    f.write(f'dense_layers: {dense_layers}\n')
-    f.write(f'dense_size: {dense_size}\n')
-    f.write(f'latent_size: {latent_size}\n')
+    f.write(f'hidden_state = {hidden_state}\n')
+    f.write(f'lstm_layers = {lstm_layers}\n')
+    f.write(f'dense_layers = {dense_layers}\n')
+    f.write(f'dense_size = {dense_size}\n')
+    f.write(f'latent_size = {latent_size}\n')
 
     # training params
-    f.write(f'learning rate: {lr}\n')
-    f.write(f'epochs: {epochs}\n')
-    f.write(f'monitor: {monitor}\n')
-    f.write(f'batch_size: {batch_size}\n')
-    
+    f.write(f'learning rate = {lr}\n')
+    f.write(f'epochs = {epochs}\n')
+    f.write(f'monitor = {monitor}\n')
+    f.write(f'batch_size = {batch_size}\n')
+    f.write(f'clipvalue = {clipvalue}\n')
+    if callable(loss):
+        f.write(f'loss = {loss.__name__}\n')
+    else:
+        f.write(f'loss = {loss}\n')
 
 
 # get training data
@@ -119,8 +125,8 @@ dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
                                     [model_out.name for model_out in model_output_reqs],
                                     t_force=True, batch_size = batch_size, seq_length=seq_length)
 
-opt = tf.keras.optimizers.Adam(learning_rate=lr)
-autoencoder.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
+autoencoder.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
 history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
 # save the model weights and history

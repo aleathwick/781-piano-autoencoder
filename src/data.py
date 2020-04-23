@@ -36,7 +36,7 @@ def filepath2key(filepath):
     """takes a file path and returns key (relying on the filename convention I've used)"""
     return filepath.split('_')[-1].split('.')[0]
 
-def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False):
+def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False, nth_file=None):
     """Turn folder of midi files into examples for piano autoencoder
 
     Arguments:
@@ -56,6 +56,8 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     example_length = 64
     piano_range = 88
     files = [file for file in os.scandir(folder)]
+    if nth_file != None:
+        files = [f for i, f in enumerate(files) if i % nth_file == 0]
     for i, file in enumerate(files):
         if i % 10 == 0:
             print(f'processing file {i} of {len(files)}')
