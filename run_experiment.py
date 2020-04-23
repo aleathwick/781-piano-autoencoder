@@ -34,7 +34,7 @@ dense_layers = 1
 dense_size = 128
 
 # training params
-lr = 0.001
+lr = 0.0001
 epochs=100
 monitor = 'loss'
 loss = 'binary_crossentropy' 

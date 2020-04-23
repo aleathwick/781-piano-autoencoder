@@ -129,7 +129,7 @@ def HOV2pm(md, sub_beats=4):
     return pm
 
 
-def examples2pm(md, sub_beats=4):
+def examples2pm(md, i=None, sub_beats=4):
     """Turn a random training example into a pretty midi file
     
     Arguments:
@@ -137,7 +137,8 @@ def examples2pm(md, sub_beats=4):
     
     """
 
-    i = np.random.randint(0, len(md['H']))
+    if i == None:
+        i = np.random.randint(0, len(md['H']))
     print(f'example {i} chosen')
     md = {md.name: md.data[i] for md in md.values()}
     for name, data in md.items():
