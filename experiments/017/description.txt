@@ -1,4 +1,4 @@
-no: 1
+no: 17
 model_inputs: ['H', 'V_mean']
 model_outputs: ['V']
 seq_length: 32
@@ -12,3 +12,4 @@ dense_size: 128
 learning rate: 0.001
 epochs: 100
 monitor: loss
+loss: binary_crossentropy

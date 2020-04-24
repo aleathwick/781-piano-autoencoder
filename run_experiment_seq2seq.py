@@ -44,13 +44,37 @@ def my_config():
 
     # training params
     lr = 0.0001
-    epochs=2
+    epochs = 90
     monitor = 'loss'
+    clipvalue = 1
+    loss = 'categorical_crossentropy' 
 
 
 @ex.automain
-def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, transpose, st, nth_file, hidden_state, lstm_layers, dense_layers, dense_size,
-                latent_size, batch_size, lr, epochs, monitor):
+def train_model(_run,
+                # data params
+                model_inputs,
+                model_outputs,
+                seq_length,
+                use_base_key,
+                transpose,
+                st,
+                nth_file,
+                
+                # network params
+                hidden_state,
+                lstm_layers,
+                dense_layers,
+                dense_size,
+                latent_size,
+                batch_size,
+                
+                # training params
+                lr,
+                epochs,
+                monitor,
+                clipvalue,
+                loss):
     
     no, path = exp_utils.set_up_path(_run)
     
@@ -64,14 +88,8 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
     model_datas_train = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
     model_datas_val = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
 
+
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
-
-    for i, model_input in enumerate(model_input_reqs):
-        print(f'input {i}: {model_input.name}')
-
-    for i, model_output in enumerate(model_output_reqs):
-        print(f'out {i}: {model_output.name}')
-
 
     checkpoint_train = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
                                 monitor='loss', verbose=1, save_best_only=True, save_weights_only=True)
@@ -85,7 +103,6 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
     # create model
     seq_model = models.create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, dense_layers=dense_layers, dense_size=dense_size)
     seq_model.summary()
-
 
     z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size, seq_length=seq_length)
     pred, ar_inputs = models.create_LSTMdecoder_graph2(z, model_output_reqs, seq_length=seq_length, hidden_state_size = hidden_state, dense_size=dense_size)
@@ -107,8 +124,8 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
                                         [model_out.name for model_out in model_output_reqs],
                                         t_force=True, batch_size = batch_size, seq_length=seq_length)
 
-    opt = tf.keras.optimizers.Adam(learning_rate=lr)
-    autoencoder.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
+    autoencoder.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
     history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
     # save the model history
@@ -117,7 +134,6 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
 
     # add weights to sacred
     exp_utils.capture_weights(_run)
-
 
     # save a graph of the training vs validation progress
     models.plt_metric(history.history)
