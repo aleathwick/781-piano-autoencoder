@@ -2,7 +2,6 @@ import numpy as np
 from scipy.sparse import csc_matrix
 import src.midi_utils as midi_utils
 import tensorflow as tf
-
  
 class PianoPiece():
      def __init__(self, pm=None, data_dict=None):
