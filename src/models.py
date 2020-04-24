@@ -150,7 +150,7 @@ def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64)
 
 def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
                     lstm_layers = 2, dense_layers = 2, hidden_state_size = 512, dense_size = 512, n_notes=88, chroma=False, recurrent_dropout = 0.0):
-    """creates an LSTM based decoder
+    """creates an LSTM based decoder, NOT autoregressive - handles all outputs at once
     
     Arguments:
     seq_length -- time steps per training example
@@ -176,9 +176,9 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
     return outputs
 
 
-def create_LSTMdecoder_graph2(latent_vector, model_output_reqs, seq_length=seq_length,
+def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length,
                     lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
-    """creates an LSTM based decoder
+    """creates an autoregressive LSTM based decoder
 
     
     Arguments:
@@ -260,8 +260,8 @@ def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_len
     return outputs, ar_inputs
 
 
-def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, conductor_state_size=32, decoder_state_size=256,
-                conductors=2, conductor_steps=8, recurrent_dropout=0.0):
+def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
+                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True):
     """create a hierarchical decoder
 
     Arguments:
@@ -277,6 +277,8 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     still need to sort out initial states...
 
     """
+    if conductor_state_size == None:
+        conductor_state_size = hidden_state_size
 
     # calculate conductor substeps ('sub beats')
     conductor_substeps = int(seq_length / conductor_steps)
@@ -289,12 +291,16 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     dummy_in = tf.keras.Input(shape=[0], name='dummy')
     repeat_dummy = layers.RepeatVector(conductor_steps, name='dummy_repeater')(dummy_in)
 
-    # get the conductor initial state by passing z through dense layers
-    h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
-    c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+    if initial_state_from_dense:
+        # get the conductor initial state by passing z through dense layers
+        h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+        c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+        
+        # fire up conductor, getting 'c', the hidden states for the start of each decoder step
+        all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
     
-    # fire up conductor, getting 'c', the hidden states for the start of each decoder step
-    all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
+    else:
+        all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy)
 
     ### set up layers for final decoding ###
 
@@ -342,7 +348,7 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
     
-    return outputs, ar_inputs + [dummy]
+    return outputs, ar_inputs + [dummy_in]
 
 
 ########## Plotting model output ##########

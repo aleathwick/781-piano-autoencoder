@@ -66,13 +66,6 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
-    for i, model_input in enumerate(model_input_reqs):
-        print(f'input {i}: {model_input.name}')
-
-    for i, model_output in enumerate(model_output_reqs):
-        print(f'out {i}: {model_output.name}')
-
-
     # set up callbacks
     checkpoint_train = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
                                 monitor='loss', verbose=1, save_best_only=True, save_weights_only=True)

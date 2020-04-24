@@ -20,7 +20,7 @@ import src.exp_utils as exp_utils
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('autoencoder')
+ex = Experiment('h_autoencoder')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 @ex.config
@@ -35,11 +35,13 @@ def my_config():
     nth_file = None
 
     # network params
-    hidden_state = 512
+    hierarchical = True
+    initial_state_from_dense = False
+    hidden_state = 800
     lstm_layers = 2
     dense_layers = 1
-    dense_size = 512
-    latent_size = 256
+    dense_size = 800
+    latent_size = 400
     batch_size = 128
 
     # training params
@@ -62,6 +64,8 @@ def train_model(_run,
                 nth_file,
                 
                 # network params
+                hierarchical,
+                initial_state_from_dense,
                 hidden_state,
                 lstm_layers,
                 dense_layers,
@@ -106,8 +110,12 @@ def train_model(_run,
     seq_model.summary()
 
     z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size, seq_length=seq_length)
-    pred, ar_inputs = models.create_LSTMdecoder_graph2(z, model_output_reqs, seq_length=seq_length, hidden_state_size = hidden_state, dense_size=dense_size)
-
+    
+    if hierarchical:
+        pred, ar_inputs = models.create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
+                                                                    initial_state_from_dense=initial_state_from_dense)
+    else:
+        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
