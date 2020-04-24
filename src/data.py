@@ -49,6 +49,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
 
     Returns:
     examples -- dictionary of ModelData objects or arrays
+    seconds -- total amount of data, in seconds
 
     """
     
@@ -84,7 +85,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
         examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
-    return examples
+    return examples, seconds
 
 
 def HOV2pm(md, sub_beats=4):

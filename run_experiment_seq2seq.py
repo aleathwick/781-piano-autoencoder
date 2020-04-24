@@ -32,7 +32,7 @@ def my_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = 8
+    nth_file = None
 
     # network params
     hidden_state = 512
@@ -44,7 +44,7 @@ def my_config():
 
     # training params
     lr = 0.0001
-    epochs = 90
+    epochs = 60
     monitor = 'loss'
     clipvalue = 1
     loss = 'categorical_crossentropy' 
@@ -85,9 +85,10 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
-    model_datas_val = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
-
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file)
+    _run.info['seconds_train_data'] = seconds
+    model_datas_val, seconds = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+    _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
@@ -97,7 +98,7 @@ def train_model(_run,
                                 monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     # early stopping, if needed
     # stop = tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5)
-    callbacks = [checkpoint_train, checkpoint_val, exp_utils.SacredLogMetrics(_run)]
+    callbacks = [checkpoint_train, checkpoint_val, exp_utils.KerasInfoUpdater(_run)]
 
 
     # create model

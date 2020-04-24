@@ -20,7 +20,7 @@ import src.exp_utils as exp_utils
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment()
+ex = Experiment('simple_bi_lstm')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 @ex.config
@@ -75,9 +75,9 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
 
     # set up callbacks
     checkpoint_train = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
-                                monitor=monitor, verbose=1, save_best_only=True, save_weights_only=True)
+                                monitor='loss', verbose=1, save_best_only=True, save_weights_only=True)
     checkpoint_val = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
-                                monitor=monitor, verbose=1, save_best_only=True, save_weights_only=True)
+                                monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     # early stopping, if needed
     # stop = tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5)
     callbacks = [checkpoint_train, checkpoint_val, exp_utils.SacredLogMetrics(_run)]
@@ -108,6 +108,7 @@ def train_model(_run, model_inputs, model_outputs, seq_length, use_base_key, tra
     with open(f'{path}history-{epochs}epochs.json', 'w') as f:
         json.dump(str(history.history), f)
 
+    # add weights to sacred
     exp_utils.capture_weights(_run)
 
     # save a graph of the training vs validation progress
