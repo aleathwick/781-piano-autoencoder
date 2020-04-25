@@ -225,7 +225,8 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     return outputs, ar_inputs
 
 def create_LSTMdecoder_graph_ar_explicit(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
-                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
+                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0,
+                    stateful=False, ar_inputs=None):
     """creates an autoregressive LSTM based decoder, with an explicit for loop for LSTM operations
 
     
@@ -333,7 +334,7 @@ def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_len
 
 
 def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
-                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True):
+                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None):
     """create a hierarchical decoder
 
     Arguments:
@@ -349,6 +350,12 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     still need to sort out initial states...
 
     """
+
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    else:
+        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+
     if conductor_state_size == None:
         conductor_state_size = hidden_state_size
 

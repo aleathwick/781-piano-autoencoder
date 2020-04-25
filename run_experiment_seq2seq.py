@@ -35,7 +35,7 @@ def my_config():
     nth_file = None
 
     # network params
-    hierarchical = True
+    hierarchical = False
     initial_state_from_dense = False
     hidden_state = 512
     lstm_layers = 2
@@ -75,6 +75,7 @@ def train_model(_run,
                 dense_size,
                 latent_size,
                 batch_size,
+                ar_inputs,
                 
                 # training params
                 lr,
@@ -116,9 +117,10 @@ def train_model(_run,
     
     if hierarchical:
         pred, ar_inputs = models.create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
-                                                                    initial_state_from_dense=initial_state_from_dense)
+                                                                    initial_state_from_dense=initial_state_from_dense, ar_inputs=ar_inputs)
     else:
-        pred, ar_inputs = models.create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size, ar_inputs=ar_inputs)
+        pred, ar_inputs = models.create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
+                                                                    ar_inputs=ar_inputs)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
