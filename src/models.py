@@ -176,7 +176,7 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
     return outputs
 
 
-def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length,
+def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
                     lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
     """creates an autoregressive LSTM based decoder
 
@@ -184,12 +184,17 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     Arguments:
     seq_length -- time steps per training example
     hidden_state_size -- size of LSTM hidden state
+    ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
 
     Notes:
     I suppose all that would be needed for prediction, would be to use sequence length of 1, and use predictions as feed in for tf inputs?
     
     """
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    else:
+        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
 
     x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
     # if not stateful:
@@ -198,10 +203,10 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     # get teacher forced inputs
     # the model will only be stateful if it is being used for prediction
     if not stateful:
-        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
     else:
         # if this executes, then the model is being used for prediction, and batch size is 1
-        ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
     
     # pass input through non final lstm layers, returning sequences each time
     for i in range(lstm_layers - 1):
@@ -217,6 +222,73 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     for output in model_output_reqs:
         outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
 
+    return outputs, ar_inputs
+
+def create_LSTMdecoder_graph_ar_explicit(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
+                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
+    """creates an autoregressive LSTM based decoder, with an explicit for loop for LSTM operations
+
+    
+    Arguments:
+    seq_length -- time steps per training example
+    hidden_state_size -- size of LSTM hidden state
+    ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
+    supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
+
+    Notes:
+    I suppose all that would be needed for prediction, would be to use sequence length of 1, and use predictions as feed in for tf inputs?
+    
+    """
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    else:
+        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+
+    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
+    # x = layers.Reshape((1, dense_size))(x)
+
+
+    # get teacher forced inputs
+    # the model will only be stateful if it is being used for prediction
+    if not stateful:
+        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+    else:
+        # if this executes, then the model is being used for prediction, and batch size is 1
+        ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+    
+    ar_concat = layers.concatenate(ar_inputs, axis=-1)
+
+    # make final dense layers
+    output_fns = [layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation) for output in model_output_reqs]
+
+    LSTMs = []
+    for i in range(lstm_layers - 1):
+        LSTMs.append(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}'))
+    final_LSTM = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')
+    
+    #layer for concatenating x2 with ar_inputs 
+    x2_ar_concat = layers.concatenate
+
+    outputs = [[] for i in range(len(output_fns))]
+
+    expand_dims = layers.Lambda(lambda x: tf.expand_dims(x, 1))
+    for i in range(seq_length):
+        # need to retain x for next time step
+        x2 = x
+        x2 = expand_dims(x2)
+        # pass dense outputs through LSTMs
+        for lstm in LSTMs:
+            x2 = lstm(x2)
+        # get ar_inputs for this time step
+        ar_slice = layers.Lambda(lambda x: x[...,i,:], name=f'select_ar_{i + 1}')(ar_concat)
+        ar_slice = expand_dims(ar_slice)
+        x2 = x2_ar_concat([x2, ar_slice])
+        for j in range(len(output_fns)):
+            outputs[j].append(output_fns[j](x2))
+    
+    final_concat = layers.concatenate
+    outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
+    
     return outputs, ar_inputs
 
 

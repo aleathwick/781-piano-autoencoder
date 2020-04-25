@@ -20,7 +20,7 @@ import src.exp_utils as exp_utils
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('h_autoencoder')
+ex = Experiment('test_explicit_autoencoder')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 @ex.config
@@ -37,12 +37,15 @@ def my_config():
     # network params
     hierarchical = True
     initial_state_from_dense = False
-    hidden_state = 800
+    hidden_state = 512
     lstm_layers = 2
     dense_layers = 1
-    dense_size = 800
-    latent_size = 400
+    dense_size = 512
+    latent_size = 256
     batch_size = 128
+    # ar_inputs only works as parameter for non hierarchical graph, currently
+    ar_inputs = ['H']
+
 
     # training params
     lr = 0.0001
@@ -115,7 +118,7 @@ def train_model(_run,
         pred, ar_inputs = models.create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
                                                                     initial_state_from_dense=initial_state_from_dense)
     else:
-        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size)
+        pred, ar_inputs = models.create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size, ar_inputs=ar_inputs)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
