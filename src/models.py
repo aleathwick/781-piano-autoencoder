@@ -191,11 +191,13 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     I suppose all that would be needed for prediction, would be to use sequence length of 1, and use predictions as feed in for tf inputs?
     
     """
+    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
     if ar_inputs == None:
         ar_inputs = [model_output.name for model_output in model_output_reqs]
     else:
         assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
 
+    # initial dense layer to transform z
     x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
     # if not stateful:
     x = layers.RepeatVector(seq_length)(x)
@@ -220,13 +222,13 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     # attempt to rebuild input
     outputs = []
     for output in model_output_reqs:
-        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_out')(x))
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_out')(x))
 
     return outputs, ar_inputs
 
-def create_LSTMdecoder_graph_ar_explicit(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
+def create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, ar_inputs=None,
                     lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0,
-                    stateful=False, ar_inputs=None):
+                    stateful=False):
     """creates an autoregressive LSTM based decoder, with an explicit for loop for LSTM operations
 
     
@@ -245,9 +247,7 @@ def create_LSTMdecoder_graph_ar_explicit(latent_vector, model_output_reqs, seq_l
     else:
         assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
 
-    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
-    # x = layers.Reshape((1, dense_size))(x)
-
+    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(z)
 
     # get teacher forced inputs
     # the model will only be stateful if it is being used for prediction
@@ -334,7 +334,7 @@ def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_len
 
 
 def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
-                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None):
+                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None, stateful=False):
     """create a hierarchical decoder
 
     Arguments:
@@ -350,12 +350,12 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     still need to sort out initial states...
 
     """
-
+    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
     if ar_inputs == None:
         ar_inputs = [model_output.name for model_output in model_output_reqs]
     else:
         assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
-
+    
     if conductor_state_size == None:
         conductor_state_size = hidden_state_size
 
@@ -370,24 +370,57 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     dummy_in = tf.keras.Input(shape=[0], name='dummy')
     repeat_dummy = layers.RepeatVector(conductor_steps, name='dummy_repeater')(dummy_in)
 
+    # give to conductors to get sequence 'conductor_out'
     if initial_state_from_dense:
         # get the conductor initial state by passing z through dense layers
         h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
         c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
         
         # fire up conductor, getting 'c', the hidden states for the start of each decoder step
-        all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
+        conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
     
     else:
-        all_c = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy)
+        conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy)
 
     ### set up layers for final decoding ###
+    # concatenation layer for joining c repeated with ar input
+    c_ar_concat = layers.concatenate
+    
+    if stateful:
+        # if stateful, then this is a prediction model! 
+        # that means autoregressive inputs can't be all passed in at once, but need to be sorted step by step.
+        # return conductor out and dummy in for building autoencoder/decoder up to conductor outs
+        # also return the decoder part, which will need to be manually used to get outputs
+
+        # need only one timestep at a time - have to retrieve autoregressive inputs
+        c_input = tf.keras.Input(batch_shape=(1,1,conductor_state_size), name='c_input')
+        
+        ar_inputs = [tf.keras.Input((1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        ar_inputs.sort(key=lambda x: x.name)
+        # concatenate auto regressive inputs
+        ar_concat = layers.concatenate(ar_inputs, axis=-1)
+
+        # concatenate c_input with ar input
+        c_ar_concat = layers.concatenate([c_input, ar_concat])
+        # pass to decoder LSTM
+        decoder_lstm = layers.LSTM(hidden_state_size, recurrent_dropout=recurrent_dropout, stateful=True, name='final_dec_LSTM')
+        x = decoder_lstm(c_ar_concat)
+        # expand dimensions so that time distributed layer doesn't have to be removed from final dense layers
+        x = layers.Lambda(lambda x: tf.expand_dims(x, 0), name='expand_dims')(x)
+        # set up dense layers for final output
+        output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
+        outputs = [[] for i in range(len(output_fns))]
+        # apply dense layers
+        for i in range(len(output_fns)):
+            outputs[i].append(output_fns[i](x))
+        decoder = tf.keras.Model(inputs=[c_input] + ar_inputs, outputs=outputs, name=f'decoder')
+        return conductor_out, dummy_in, decoder
 
     # set up decoder lstm
-    decoder_lstm = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)
+    decoder_lstm = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name='final_dec_LSTM')
 
     # set up dense layers for final output
-    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
+    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
 
     # all decoder (sub step) LSTM operations for step i have c_i passed to them 
     c_repeater = layers.RepeatVector(conductor_substeps)
@@ -406,9 +439,9 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
 
     ### decoder operations ###
 
-    for i in range(all_c.shape[1]):
+    for i in range(conductor_out.shape[1]):
         # get the c_i for the relevant substep
-        c = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(all_c)
+        c = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(conductor_out)
         # repeat for each substep
         c_repeated = c_repeater(c)
 
@@ -428,6 +461,166 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
     
     return outputs, ar_inputs + [dummy_in]
+
+def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
+                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None, stateful=False):
+    """create a hierarchical decoder
+
+    Arguments:
+    z -- latent vector
+    model_output_reqs -- list of named tuples, each containing information about the outputs required
+
+    Returns:
+    outputs -- list of outputs, used for compiling a model
+    ar_inputs -- teacher forced inputs - that is, outputs moved one step to the right
+
+
+    Notes:
+    still need to sort out initial states...
+
+    """
+
+    
+    if conductor_state_size == None:
+        conductor_state_size = hidden_state_size
+
+    # calculate conductor substeps ('sub beats')
+    conductor_substeps = int(seq_length / conductor_steps)
+    print('conductor substeps:', conductor_substeps)
+
+    ### conductor operations ###
+
+    # the first layer conductors have no input! We need some dummy input.
+    # dummy input will control the number of conductor time steps
+    dummy_in = tf.keras.Input(shape=[0], name='dummy')
+    repeat_dummy = layers.RepeatVector(conductor_steps, name='dummy_repeater')(dummy_in)
+
+    # give to conductors to get sequence 'conductor_out'
+    if initial_state_from_dense:
+        # get the conductor initial state by passing z through dense layers
+        h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+        c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
+        
+        # fire up conductor, getting 'c', the hidden states for the start of each decoder step
+        conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
+    
+    else:
+        conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy)
+
+    ### set up layers for final decoding ###
+    # concatenation layer for joining c repeated with ar input
+    c_ar_concat = layers.concatenate
+
+    # set up decoder lstm
+    if stateful:
+        seq_length
+    decoder_lstm = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name='final_dec_LSTM')
+
+    # set up dense layers for final output
+    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
+
+    # all decoder (sub step) LSTM operations for step i have c_i passed to them 
+    c_repeater = layers.RepeatVector(conductor_substeps)
+
+    # list for appending outputs at each sub step, one sub list for each output
+    outputs = [[] for i in range(len(output_fns))]
+
+    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    else:
+        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+    
+    # need teacher forced inputs (sequential outputs moved right by a sub step)
+    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    ar_inputs.sort(key=lambda x: x.name)
+    # concatenate teacher forced
+    ar_concat = layers.concatenate(ar_inputs, axis=-1)
+
+    # concatenation layer for joining c repeated with ar input
+    c_ar_concat = layers.concatenate
+
+    ### decoder operations ###
+
+    for i in range(conductor_out.shape[1]):
+        # get the c_i for the relevant substep
+        c = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(conductor_out)
+        # repeat for each substep
+        c_repeated = c_repeater(c)
+
+        # append target outputs shifted to the right be a timestep
+        ar_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_ar_{i + 1}')(ar_concat)
+
+        # join c repeated with teach forced input
+        c_ar_step = c_ar_concat([c_repeated, ar_slice])
+
+        # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
+        # repeated c is given as input, and c as the initial state
+        x = decoder_lstm(c_ar_step, initial_state=[c,c])
+        for i in range(len(output_fns)):
+            outputs[i].append(output_fns[i](x))
+
+    final_concat = layers.concatenate
+    outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
+    
+    return outputs, ar_inputs + [dummy_in]
+
+
+def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, seq_length=seq_length, conductor_steps=8, initial_state_from_dense=True, ar_inputs=None, stateful=False):
+    """create a hierarchical decoder
+
+    Arguments:
+    z -- latent vector
+    model_output_reqs -- list of named tuples, each containing information about the outputs required
+
+    Returns:
+    outputs -- list of outputs, used for compiling a model
+    ar_inputs -- teacher forced inputs - that is, outputs moved one step to the right
+
+
+    Notes:
+    still need to sort out initial states...
+
+    """
+
+    # calculate conductor substeps ('sub beats')
+    conductor_substeps = int(seq_length / conductor_steps)
+    print('conductor substeps:', conductor_substeps)
+        
+
+    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    else:
+        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+
+    # list for appending outputs at each sub step, one sub list for each output
+    outputs = [[] for i in range(len(output_fns))]
+
+    ### decoder operations ###
+    # conductor_out.shape[1] should be same as number of conductor_steps
+    # I THINK that the [0] is necessary, because there'll be a batch dimension?
+
+    ar_slice = np.zeros((1,1,1,1))
+    for conductor_step in conductor_out[0]:
+        for i in range(conductor_substeps):
+            conductor_step
+            # join c repeated with teach forced input
+            c_ar_step = np.concatenate([conductor_step, ar_slice])
+
+            # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
+            # repeated c is given as input, and c as the initial state
+            if i == 0:
+                tf.keras.backend.set_value(decoder.get_layer('final_dec_LSTM').states[0], conductor_step)
+                tf.keras.backend.set_value(decoder.get_layer('final_dec_LSTM').states[1], conductor_step)
+            x = decoder.predict(c_ar_step)
+            for i in range(len(output_fns)):
+                outputs[i].append(output_fns[i](x))
+        ### need to do ar stuff... Including sorting out H
+
+    outputs = [np.concatenate(outputs, axis=-2) for outputs, raw_out in zip(outputs, model_output_reqs)]
+    
+    return outputs
 
 
 ########## Plotting model output ##########

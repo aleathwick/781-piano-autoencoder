@@ -20,7 +20,7 @@ import src.exp_utils as exp_utils
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('test_explicit_autoencoder')
+ex = Experiment('test_nonexplicit_256_sequence')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 @ex.config
@@ -28,11 +28,11 @@ def my_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 32
+    seq_length = 200
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 5
 
     # network params
     hierarchical = False
@@ -42,17 +42,20 @@ def my_config():
     dense_layers = 1
     dense_size = 512
     latent_size = 256
-    batch_size = 128
+    batch_size = 64
     # ar_inputs only works as parameter for non hierarchical graph, currently
-    ar_inputs = ['H']
+    ar_inputs = None
 
 
     # training params
     lr = 0.0001
-    epochs = 60
+    epochs = 3
     monitor = 'loss'
     clipvalue = 1
-    loss = 'categorical_crossentropy' 
+    loss = 'categorical_crossentropy'
+
+    #other
+    log_tensorboard = False
 
 
 @ex.automain
@@ -82,7 +85,10 @@ def train_model(_run,
                 epochs,
                 monitor,
                 clipvalue,
-                loss):
+                loss,
+                
+                #other
+                log_tensorboard):
     
     no, path = exp_utils.set_up_path(_run)
     
@@ -100,13 +106,20 @@ def train_model(_run,
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
-    checkpoint_train = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
-                                monitor='loss', verbose=1, save_best_only=True, save_weights_only=True)
-    checkpoint_val = tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
-                                monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
+    callbacks = []
+    # train loss model checkpoint
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
+                                monitor='loss', verbose=1, save_best_only=True, save_weights_only=True))
+    # val loss model checkpoint
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
+                                monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
     # early stopping, if needed
-    # stop = tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5)
-    callbacks = [checkpoint_train, checkpoint_val, exp_utils.KerasInfoUpdater(_run)]
+    # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
+    # log keras info to sacred
+    callbacks.append(exp_utils.KerasInfoUpdater(_run))
+    # log to tensorboard
+    if log_tensorboard:
+        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
 
     # create model
@@ -119,7 +132,7 @@ def train_model(_run,
         pred, ar_inputs = models.create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
                                                                     initial_state_from_dense=initial_state_from_dense, ar_inputs=ar_inputs)
     else:
-        pred, ar_inputs = models.create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
+        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
                                                                     ar_inputs=ar_inputs)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
