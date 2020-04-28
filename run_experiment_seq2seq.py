@@ -28,7 +28,7 @@ def my_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 200
+    seq_length = 64
     use_base_key = True
     transpose = False
     st = 0
@@ -96,6 +96,7 @@ def train_model(_run,
     with open(f'{path}description.txt', 'w') as f:
         for key, value in locals().items():
             f.write(f'{key} = {value}\n')
+        
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'

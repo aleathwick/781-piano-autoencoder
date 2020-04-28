@@ -566,7 +566,7 @@ def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_leng
     return outputs, ar_inputs + [dummy_in]
 
 
-def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, seq_length=seq_length, conductor_steps=8, initial_state_from_dense=True, ar_inputs=None, stateful=False):
+def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, model_datas, seq_length=seq_length, conductor_steps=8, initial_state_from_dense=True, ar_inputs=None, stateful=False):
     """create a hierarchical decoder
 
     Arguments:
@@ -599,8 +599,6 @@ def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, seq_length=se
 
     ### decoder operations ###
     # conductor_out.shape[1] should be same as number of conductor_steps
-    # I THINK that the [0] is necessary, because there'll be a batch dimension?
-
     ar_slice = np.zeros((1,1,1,1))
     for conductor_step in conductor_out[0]:
         for i in range(conductor_substeps):
