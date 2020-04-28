@@ -20,7 +20,7 @@ import src.exp_utils as exp_utils
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('test_nonexplicit_256_sequence')
+ex = Experiment('autoencoder_10hrs')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 @ex.config
@@ -28,11 +28,11 @@ def my_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 64
+    seq_length = 32
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = 5
+    nth_file = None
 
     # network params
     hierarchical = False
@@ -42,14 +42,14 @@ def my_config():
     dense_layers = 1
     dense_size = 512
     latent_size = 256
-    batch_size = 64
+    batch_size = 128
     # ar_inputs only works as parameter for non hierarchical graph, currently
     ar_inputs = None
 
 
     # training params
     lr = 0.0001
-    epochs = 3
+    epochs = 60
     monitor = 'loss'
     clipvalue = 1
     loss = 'categorical_crossentropy'
