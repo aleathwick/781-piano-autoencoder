@@ -1,0 +1,24 @@
+_run = <sacred.run.Run object at 0x7fdf6943cad0>
+model_inputs = ['H', 'V_mean']
+model_outputs = ['H', 'V']
+seq_length = 32
+use_base_key = True
+transpose = False
+st = 0
+nth_file = None
+hierarchical = True
+initial_state_from_dense = False
+hidden_state = 800
+lstm_layers = 2
+dense_layers = 1
+dense_size = 800
+latent_size = 400
+batch_size = 128
+lr = 0.0001
+epochs = 60
+monitor = loss
+clipvalue = 1
+loss = categorical_crossentropy
+no = 37
+path = experiments/run_37/
+f = <_io.TextIOWrapper name='experiments/run_37/description.txt' mode='w' encoding='UTF-8'>

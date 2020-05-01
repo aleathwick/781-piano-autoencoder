@@ -39,7 +39,7 @@ def get_inputs(model_input_reqs, seq_length):
 
 
 def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, lstm_layers=3, dense_layers=2, LSTM_state_size = 256,
-                    dense_size = 128, recurrent_dropout = 0.0):
+                    dense_size = 128, recurrent_dropout = 0.0, ar_inputs=None):
     
     seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
     # pass input through non final lstm layers, returning sequences each time
@@ -75,8 +75,15 @@ def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_l
 
 ########## Encoders ##########
 
-def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, lstm_layers = 3, dense_layers = 2, hidden_state_size = 512, latent_size = 256,
-                    dense_size = 512, recurrent_dropout = 0.0):
+def create_LSTMencoder_graph(model_input_reqs, 
+                        seq_length = seq_length,  
+                        lstm_layers = 3,  
+                        dense_layers = 2,  
+                        hidden_state_size = 512,  
+                        latent_size = 256,
+                        dense_size = 512,  
+                        recurrent_dropout = 0.0,
+                        z_activation='relu'):
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:
@@ -108,7 +115,7 @@ def create_LSTMencoder_graph(model_input_reqs, seq_length = seq_length, lstm_lay
     for i in range(dense_layers - 1):
         x = layers.Dense(dense_size, activation='relu', name=f'enc_dense_{i}')(x)
     
-    z = layers.Dense(latent_size, activation='relu', name='z')(x)
+    z = layers.Dense(latent_size, activation=z_activation, name='z')(x)
     
     return z, seq_inputs + aux_inputs
 
@@ -333,8 +340,24 @@ def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_len
     return outputs, ar_inputs
 
 
-def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
-                conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None, stateful=False):
+def create_hierarchical_decoder_graph(
+                        # basic data parameters
+                        z,
+                        model_output_reqs,
+                        seq_length=seq_length,
+                        ar_inputs=None, 
+                        # dense and lstm sizes
+                        dense_size=256,
+                        hidden_state_size=256,
+                        decoder_lstms=2,
+                        conductor_state_size=None, # none => same as decoder
+                        # conductor configuration
+                        conductors=2,
+                        conductor_steps=16,
+                        initial_state_from_dense=True,
+                        initial_state_activation=None,
+                        recurrent_dropout=0.0,
+                        stateful=False):
     """create a hierarchical decoder
 
     Arguments:
@@ -373,14 +396,20 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
     # give to conductors to get sequence 'conductor_out'
     if initial_state_from_dense:
         # get the conductor initial state by passing z through dense layers
-        h0 = layers.Dense(conductor_state_size, activation='tanh')(z)
-        c0 = layers.Dense(conductor_state_size, activation='tanh')(z)
-        
+        h0 = layers.Dense(conductor_state_size, activation=initial_state_activation, name='conductor_initial_h0')(z)
+        c0 = layers.Dense(conductor_state_size, activation=initial_state_activation, name='conductor_initial_c0')(z)
         # fire up conductor, getting 'c', the hidden states for the start of each decoder step
         conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy, initial_state=[h0, c0])
-    
+        for i in range(conductors - 1):
+            conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(conductor_out, initial_state=[h0, c0])
+
     else:
         conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(repeat_dummy)
+        for i in range(conductors - 1):
+            conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(conductor_out)
+    
+    dense_decode_h0 = layers.Dense(hidden_state_size, activation=initial_state_activation, name='conductor_LSTM_h0')
+    dense_decode_c0 = layers.Dense(hidden_state_size, activation=initial_state_activation, name='conductor_LSTM_c0')
 
     ### set up layers for final decoding ###
     # concatenation layer for joining c repeated with ar input
@@ -451,9 +480,14 @@ def create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_lengt
         # join c repeated with teach forced input
         c_ar_step = c_ar_concat([c_repeated, ar_slice])
 
+        h0 = dense_decode_h0(c)
+        c0 = dense_decode_c0(c)
+
         # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
         # repeated c is given as input, and c as the initial state
-        x = decoder_lstm(c_ar_step, initial_state=[c,c])
+        x = decoder_lstm(c_ar_step, initial_state=[h0,c0])
+        for i in range(decoder_lstms - 1):
+            x = decoder_lstm(x, initial_state=[h0,c0])
         for i in range(len(output_fns)):
             outputs[i].append(output_fns[i](x))
 

@@ -28,7 +28,7 @@ def my_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 32
+    seq_length = 64
     use_base_key = True
     transpose = False
     st = 0
@@ -42,7 +42,7 @@ def my_config():
     dense_layers = 1
     dense_size = 512
     latent_size = 256
-    batch_size = 128
+    batch_size = 64
     # ar_inputs only works as parameter for non hierarchical graph, currently
     ar_inputs = None
 
