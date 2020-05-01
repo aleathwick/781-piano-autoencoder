@@ -23,8 +23,9 @@ from sacred.observers import MongoObserver
 ex = Experiment('autoencoder_10hrs')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
+
 @ex.config
-def my_config():
+def data_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
@@ -33,21 +34,35 @@ def my_config():
     transpose = False
     st = 0
     nth_file = None
+    vel_cutoff = 4
 
-    # network params
-    hierarchical = False
-    initial_state_from_dense = False
-    hidden_state = 512
-    lstm_layers = 2
-    dense_layers = 1
-    dense_size = 512
+@ex.config
+def network_config():
+    ### general network params
+    hierarchical = True
     latent_size = 256
-    batch_size = 64
+    hidden_state = 512
+    dense_size = 512
+    dense_layers = 1
+    recurrent_dropout=0.0
+
+    ### encoder params
+    encoder_lstms = 2
+
+    ### decoder params
+    decoder_lstms=2,
     # ar_inputs only works as parameter for non hierarchical graph, currently
     ar_inputs = None
+    conductors=2,
+    conductor_steps=16,
+    conductor_state_size=None, # none => same as decoder
+    initial_state_from_dense=True,
+    initial_state_activation=None,
 
-
-    # training params
+@ex.config
+def train_config():
+    ### training params
+    batch_size = 64
     lr = 0.0001
     epochs = 60
     monitor = 'loss'
@@ -68,25 +83,32 @@ def train_model(_run,
                 transpose,
                 st,
                 nth_file,
+                vel_cutoff,
                 
                 # network params
                 hierarchical,
-                initial_state_from_dense,
-                hidden_state,
-                lstm_layers,
-                dense_layers,
-                dense_size,
                 latent_size,
-                batch_size,
+                hidden_state,
+                dense_size,
+                dense_layers,
+                recurrent_dropout,
+                encoder_lstms,
+                decoder_lstms,
                 ar_inputs,
+                conductors,
+                conductor_steps,
+                conductor_state_size,
+                initial_state_from_dense,
+                initial_state_activation,
                 
                 # training params
+                batch_size,
                 lr,
                 epochs,
                 monitor,
                 clipvalue,
                 loss,
-                
+
                 #other
                 log_tensorboard):
     
@@ -100,7 +122,7 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file)
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file, vel_cutoff=vel_cutoff)
     _run.info['seconds_train_data'] = seconds
     model_datas_val, seconds = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
     _run.info['seconds_val_data'] = seconds
@@ -130,8 +152,22 @@ def train_model(_run,
     z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size, seq_length=seq_length)
     
     if hierarchical:
-        pred, ar_inputs = models.create_hierarchical_decoder_graph(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
-                                                                    initial_state_from_dense=initial_state_from_dense, ar_inputs=ar_inputs)
+        pred, ar_inputs = models.create_hierarchical_decoder_graph(z,
+                                                                model_output_reqs,
+                                                                seq_length=seq_length,
+                                                                ar_inputs=ar_inputs, 
+                                                                # dense and lstm sizes
+                                                                dense_size=dense_size,
+                                                                hidden_state_size=hidden_state,
+                                                                decoder_lstms=decoder_lstms,
+                                                                conductor_state_size=conductor_state_size, # none => same as decoder
+                                                                # conductor configuration
+                                                                conductors=conductors,
+                                                                conductor_steps=conductor_steps,
+                                                                initial_state_from_dense=initial_state_from_dense,
+                                                                initial_state_activation=initial_state_activation,
+                                                                recurrent_dropout=0.0,
+                                                                stateful)
     else:
         pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
                                                                     ar_inputs=ar_inputs)

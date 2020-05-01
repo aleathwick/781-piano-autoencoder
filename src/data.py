@@ -36,7 +36,7 @@ def filepath2key(filepath):
     """takes a file path and returns key (relying on the filename convention I've used)"""
     return filepath.split('_')[-1].split('.')[0]
 
-def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False, nth_file=None):
+def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per_ex=16, sub_beats=4, use_base_key=False, nth_file=None, vel_cutoff=4):
     """Turn folder of midi files into examples for piano autoencoder
 
     Arguments:
@@ -65,7 +65,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
-        file_examples = midi_utils.pm2example(pm, key, sparse=sparse, beats_per_ex=beats_per_ex, sub_beats=sub_beats, use_base_key=use_base_key)
+        file_examples = midi_utils.pm2example(pm, key, sparse=sparse, beats_per_ex=beats_per_ex, sub_beats=sub_beats, use_base_key=use_base_key, vel_cutoff=vel_cutoff)
         for key, data in file_examples.items():
             examples[key].extend(data)
 

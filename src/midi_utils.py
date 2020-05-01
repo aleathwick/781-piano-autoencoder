@@ -231,12 +231,12 @@ def center_pm(pm, sub_beats=4):
     for cc in pm.instruments[0].control_changes:
         cc.time -= mean_offset
 
-def filter_notes(pm, threshold):
+def filter_notes(pm, vel_cutoff):
     """filter out any notes that are beneath a threshold in velocity"""
-    pm.instruments[0].notes = [note for note in pm.instruments[0].notes if note.velocity >= threshold]
+    pm.instruments[0].notes = [note for note in pm.instruments[0].notes if note.velocity >= vel_cutoff]
 
 
-def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False):
+def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False, vel_cutoff=4):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
     
     Arguments:
@@ -256,7 +256,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     """
     sustain_only(pm)
     bin_sus(pm)
-    filter_notes(pm, 4)
+    filter_notes(pm, vel_cutoff)
     center_pm(pm)
     sustain = pm.instruments[0].control_changes
     desus(pm, filter=3)
