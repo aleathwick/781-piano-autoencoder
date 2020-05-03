@@ -33,7 +33,7 @@ class ModelData():
         self.shape = self.data[0].shape
         if self.shape[0] == 1:
             self.shape = tuple([self.shape[-1]])
-        print(self.shape)
+        print('created model data', name, ':   ', self.shape, 'data shape,    ', len(self.data), 'training examples')
         # int, dimension of one timestep
         self.dim = self.shape[-1]
         self.batch_data = None
