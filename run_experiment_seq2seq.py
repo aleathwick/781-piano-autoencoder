@@ -22,10 +22,12 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('discard_variational_test')
+ex = Experiment('first_free_bits_test')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
-# seem to need this with my custom loss function:
+# seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
+# last answer might fix it: https://stackoverflow.com/questions/57704771/inputs-to-eager-execution-function-cannot-be-keras-symbolic-tensors
+# the trick is for the step that defines the loss fnc to return a symbolic tensor, rather than returning another function which uses a symbolic tensor
 tf.compat.v1.disable_eager_execution()
 # alternatively, could do something like this?
 # https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
@@ -74,6 +76,8 @@ def training_config():
     lr = 0.0001
     epochs = 300
     monitor = 'loss'
+    # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
+    free_bits=48
     clipvalue = 1
     loss = losses.vae_custom_loss
     metrics = ['accuracy', 'categorical_crossentropy']
@@ -119,6 +123,7 @@ def train_model(_run,
                 lr,
                 epochs,
                 monitor,
+                free_bits,
                 clipvalue,
                 loss,
                 metrics,
@@ -168,7 +173,7 @@ def train_model(_run,
                                                     recurrent_dropout=recurrent_dropout,
                                                     variational=variational)
     if variational:
-        loss = loss(z)
+        loss = loss(z, free_bits=free_bits)
         sampling_fn = models.sampling(batch_size)
         z = layers.Lambda(sampling_fn)(z)
         
