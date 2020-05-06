@@ -8,6 +8,13 @@ from tensorflow.keras import layers
 seq_length = 64
 n_notes = 88
 
+# # see https://blog.keras.io/building-autoencoders-in-keras.html
+# def sampling(args):
+#     z_mean, z_log_sigma = args
+#     epsilon = tf.keras.backend.random_normal(shape=(batch_size, latent_dim),
+#                               mean=0., std=epsilon_std)
+#     return z_mean + K.exp(z_log_sigma) * epsilon
+
 ########## Basic Recurrent ##########
 
 def get_model_reqs(model_inputs=['H', 'V_mean'], model_outputs=['V']):
@@ -36,6 +43,30 @@ def get_inputs(model_input_reqs, seq_length):
     seq_inputs = [tf.keras.Input(shape=(seq_length,seq_in.dim), name=seq_in.name + '_in') for seq_in in model_input_reqs if seq_in.seq == True]
     aux_inputs = [tf.keras.Input(shape=(aux_in.dim,), name=aux_in.name + '_in') for aux_in in model_input_reqs if aux_in.seq == False]
     return seq_inputs, aux_inputs
+
+def sampling(batch_size, epsilon_std=1):
+    """sample from the latent space
+
+    Arguments:
+    args -- list containing z_mean and z_log_sigma vectors
+    latent_size -- size of latent space. Maybe should just infer this from args?
+    epsilon_std -- controls stddev of the sample distribution
+    
+    Returns:
+    vector sampled from the latent space
+
+    Notes:
+    look here for excellent tutorial: https://blog.keras.io/building-autoencoders-in-keras.html
+
+    """
+    def sampling_fn(z):
+        z_mean, z_log_sigma = z
+        latent_size = z_mean.shape[-1]
+        print('latent size, from sampling: ', latent_size)
+        epsilon = tf.keras.backend.random_normal(shape=(batch_size, latent_size),
+                                mean=0., stddev=epsilon_std)
+        return z_mean + tf.keras.backend.exp(z_log_sigma) * epsilon
+    return sampling_fn
 
 
 def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, lstm_layers=3, dense_layers=2, LSTM_state_size = 256,
@@ -83,7 +114,8 @@ def create_LSTMencoder_graph(model_input_reqs,
                         latent_size = 256,
                         dense_size = 512,  
                         recurrent_dropout = 0.0,
-                        z_activation='relu'):
+                        z_activation='relu',
+                        variational=False):
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:
@@ -114,9 +146,13 @@ def create_LSTMencoder_graph(model_input_reqs,
     # pass through non final dense layers
     for i in range(dense_layers - 1):
         x = layers.Dense(dense_size, activation='relu', name=f'enc_dense_{i}')(x)
-    
-    z = layers.Dense(latent_size, activation=z_activation, name='z')(x)
-    
+    if variational:
+        z_mean = layers.Dense(latent_size, activation=z_activation, name='z_mean')(x)
+        z_log_sigma = layers.Dense(latent_size, activation=z_activation, name='z_log_sigma')(x)
+        z = [z_mean, z_log_sigma]
+    else:
+        z = layers.Dense(latent_size, activation=z_activation, name='z')(x)
+
     return z, seq_inputs + aux_inputs
 
 def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64):
@@ -371,6 +407,7 @@ def create_hierarchical_decoder_graph(
 
     Notes:
     still need to sort out initial states...
+    See https://nips2017creativity.github.io/doc/Hierarchical_Variational_Autoencoders_for_Music.pdf for inspiration
 
     """
     print('z type:', type(z))
@@ -486,15 +523,15 @@ def create_hierarchical_decoder_graph(
         # join c repeated with teach forced input
         c_ar_step = c_ar_concat([c_repeated, ar_slice])
 
-        h0 = dense_decode_h0[0](c)
-        c0 = dense_decode_c0[0](c)
+        h0 = dense_decode_h0s[0](c)
+        c0 = dense_decode_c0s[0](c)
 
         # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
         # repeated c is given as input, and c as the initial state
         x = decoder_lstm_layers[0](c_ar_step, initial_state=[h0,c0])
-        for i in range(1, len(decoder_lstms)):
-            h0 = dense_decode_h0[i](c)
-            c0 = dense_decode_c0[i](c)
+        for i in range(1, decoder_lstms):
+            h0 = dense_decode_h0s[i](c)
+            c0 = dense_decode_c0s[i](c)
             x = decoder_lstm_layers[i](x, initial_state=[h0,c0])
         for i in range(len(output_fns)):
             outputs[i].append(output_fns[i](x))

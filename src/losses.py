@@ -17,3 +17,15 @@ def note_categorical_crossentropy(y_true, y_pred):
     y_true_notes = K.cast(tf.gather_nd(y_true, indices), dtype='float32')
     y_pred_notes = K.cast(tf.gather_nd(y_pred, indices), dtype='float32')
     return tf.keras.losses.categorical_crossentropy(y_true_notes, y_pred_notes)
+
+# for custom loss: looks like extra variables can be reffered by using custom loss wrapper?
+# i.e. function within function, with outer function taking VOI as input, then passing to inner function
+def vae_custom_loss(z):
+    z_mean, z_log_sigma = z
+    def vae_loss(y_true, y_pred):
+        xent_loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
+        kl_loss = - 0.5 * K.mean(1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma), axis=-1)
+        # need this for training on batches, see here: https://github.com/keras-team/keras/issues/10155
+        kl_loss = K.mean(xent_loss)
+        return xent_loss + kl_loss
+    return vae_loss

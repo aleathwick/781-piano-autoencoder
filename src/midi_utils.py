@@ -256,10 +256,10 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     """
     sustain_only(pm)
     bin_sus(pm)
-    filter_notes(pm, vel_cutoff)
+    # filter_notes(pm, vel_cutoff)
     center_pm(pm)
     sustain = pm.instruments[0].control_changes
-    desus(pm, filter=3)
+    desus(pm)
 
     # Get H, O, V for examples in a midifile
     n_examples = len(pm.get_beats()) // beats_per_ex

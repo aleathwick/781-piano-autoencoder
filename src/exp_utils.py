@@ -3,9 +3,8 @@
 import os
 import tensorflow as tf
 
-def set_up_path(_run):
-    no = _run._id
-    path = f'experiments/run_{_run._id}/'
+def set_up_path(no):
+    path = f'experiments/run_{no}/'
     os.mkdir(path)
     return no, path
 

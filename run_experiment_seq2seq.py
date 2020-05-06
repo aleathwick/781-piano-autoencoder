@@ -1,6 +1,7 @@
 from importlib import reload
 import numpy as np
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import matplotlib.pyplot as plt
 from scipy.sparse import csc_matrix, csr_matrix
 import pickle
@@ -17,19 +18,24 @@ import src.data as data
 import src.models as models
 import src.ml_classes as ml_classes
 import src.exp_utils as exp_utils
+import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('autoencoder_10hrs')
+ex = Experiment('discard_variational_test')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
+# seem to need this with my custom loss function:
+tf.compat.v1.disable_eager_execution()
+# alternatively, could do something like this?
+# https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
 
 @ex.config
 def data_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 64
+    seq_length = 32
     use_base_key = True
     transpose = False
     st = 0
@@ -37,39 +43,43 @@ def data_config():
     vel_cutoff = 4
 
 @ex.config
-def network_config():
+def model_config():
     ### general network params
     hierarchical = True
+    variational = True
     latent_size = 256
     hidden_state = 512
     dense_size = 512
-    dense_layers = 1
+    dense_layers = 2
     recurrent_dropout=0.0
 
     ### encoder params
     encoder_lstms = 2
+    z_activation = None
 
     ### decoder params
-    decoder_lstms=2,
+    decoder_lstms=2
     # ar_inputs only works as parameter for non hierarchical graph, currently
     ar_inputs = None
-    conductors=2,
-    conductor_steps=16,
-    conductor_state_size=None, # none => same as decoder
-    initial_state_from_dense=True,
-    initial_state_activation=None,
+    conductors=2
+    conductor_steps=2
+    conductor_state_size=None # none => same as decoder
+    initial_state_from_dense=True
+    initial_state_activation=None
 
 @ex.config
-def train_config():
+def training_config():
     ### training params
     batch_size = 64
     lr = 0.0001
-    epochs = 60
+    epochs = 300
     monitor = 'loss'
     clipvalue = 1
-    loss = 'categorical_crossentropy'
+    loss = losses.vae_custom_loss
+    metrics = ['accuracy', 'categorical_crossentropy']
 
     #other
+    continue_run = None
     log_tensorboard = False
 
 
@@ -87,12 +97,15 @@ def train_model(_run,
                 
                 # network params
                 hierarchical,
+                variational,
                 latent_size,
                 hidden_state,
                 dense_size,
                 dense_layers,
                 recurrent_dropout,
                 encoder_lstms,
+                z_activation,
+
                 decoder_lstms,
                 ar_inputs,
                 conductors,
@@ -108,11 +121,13 @@ def train_model(_run,
                 monitor,
                 clipvalue,
                 loss,
+                metrics,
 
                 #other
+                continue_run,
                 log_tensorboard):
     
-    no, path = exp_utils.set_up_path(_run)
+    no, path = exp_utils.set_up_path(_run._id)
     
     # save text file with the parameters used
     with open(f'{path}description.txt', 'w') as f:
@@ -145,11 +160,18 @@ def train_model(_run,
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
 
-    # create model
-    seq_model = models.create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, dense_layers=dense_layers, dense_size=dense_size)
-    seq_model.summary()
-
-    z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs, hidden_state_size = hidden_state, dense_size=dense_size, latent_size=latent_size, seq_length=seq_length)
+    z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs,
+                                                    hidden_state_size = hidden_state,
+                                                    dense_size=dense_size,
+                                                    latent_size=latent_size,
+                                                    seq_length=seq_length,
+                                                    recurrent_dropout=recurrent_dropout,
+                                                    variational=variational)
+    if variational:
+        loss = loss(z)
+        sampling_fn = models.sampling(batch_size)
+        z = layers.Lambda(sampling_fn)(z)
+        
     
     if hierarchical:
         pred, ar_inputs = models.create_hierarchical_decoder_graph(z,
@@ -166,13 +188,21 @@ def train_model(_run,
                                                                 conductor_steps=conductor_steps,
                                                                 initial_state_from_dense=initial_state_from_dense,
                                                                 initial_state_activation=initial_state_activation,
-                                                                recurrent_dropout=0.0,
-                                                                stateful)
+                                                                recurrent_dropout=recurrent_dropout)
     else:
-        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z, model_output_reqs, seq_length=seq_length, hidden_state_size=hidden_state, dense_size=dense_size,
-                                                                    ar_inputs=ar_inputs)
+        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z,
+                                                            model_output_reqs,
+                                                            seq_length=seq_length,
+                                                            hidden_state_size=hidden_state,
+                                                            dense_size=dense_size,
+                                                            ar_inputs=ar_inputs,
+                                                            recurrent_dropout=recurrent_dropout)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
+
+    if continue_run != None:
+        autoencoder.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
+
 
 
     # save a plot of the model
@@ -189,7 +219,7 @@ def train_model(_run,
                                         t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
-    autoencoder.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
+    autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics)
     history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
     # save the model history
