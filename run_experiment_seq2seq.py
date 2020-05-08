@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('first_free_bits_test')
+ex = Experiment('tanh_initial_state_test')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -33,7 +33,7 @@ tf.compat.v1.disable_eager_execution()
 # https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
 
 @ex.config
-def data_config():
+def train_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
@@ -44,11 +44,10 @@ def data_config():
     nth_file = None
     vel_cutoff = 4
 
-@ex.config
-def model_config():
+    ##### Model Config ####
     ### general network params
     hierarchical = True
-    variational = True
+    variational = False
     latent_size = 256
     hidden_state = 512
     dense_size = 512
@@ -59,6 +58,9 @@ def model_config():
     encoder_lstms = 2
     z_activation = None
 
+    ### sampling params... if applicable.
+    epsilon_std=1
+
     ### decoder params
     decoder_lstms=2
     # ar_inputs only works as parameter for non hierarchical graph, currently
@@ -67,19 +69,19 @@ def model_config():
     conductor_steps=2
     conductor_state_size=None # none => same as decoder
     initial_state_from_dense=True
-    initial_state_activation=None
+    initial_state_activation='tanh'
 
-@ex.config
-def training_config():
-    ### training params
+    ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 300
+    epochs = 400
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
-    free_bits=48
+    free_bits=0
     clipvalue = 1
-    loss = losses.vae_custom_loss
+    # loss = losses.vae_custom_loss
+    loss = 'categorical_crossentropy'
+    kl_weight = 1
     metrics = ['accuracy', 'categorical_crossentropy']
 
     #other
@@ -110,6 +112,10 @@ def train_model(_run,
                 encoder_lstms,
                 z_activation,
 
+                # sampling params
+                epsilon_std,
+
+                # decoder params
                 decoder_lstms,
                 ar_inputs,
                 conductors,
@@ -126,6 +132,7 @@ def train_model(_run,
                 free_bits,
                 clipvalue,
                 loss,
+                kl_weight,
                 metrics,
 
                 #other
@@ -173,8 +180,8 @@ def train_model(_run,
                                                     recurrent_dropout=recurrent_dropout,
                                                     variational=variational)
     if variational:
-        loss = loss(z, free_bits=free_bits)
-        sampling_fn = models.sampling(batch_size)
+        loss = loss(z, free_bits=free_bits, kl_weight=kl_weight)
+        sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
         z = layers.Lambda(sampling_fn)(z)
         
     

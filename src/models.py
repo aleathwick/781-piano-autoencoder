@@ -393,7 +393,8 @@ def create_hierarchical_decoder_graph(
                         initial_state_from_dense=True,
                         initial_state_activation=None,
                         recurrent_dropout=0.0,
-                        stateful=False):
+                        stateful=False,
+                        prediction_model=False):
     """create a hierarchical decoder
 
     Arguments:
@@ -449,50 +450,61 @@ def create_hierarchical_decoder_graph(
         for i in range(conductors - 1):
             conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(conductor_out)
     
+    # dense layers for decoder initial states
     dense_decode_h0s = [layers.Dense(hidden_state_size, activation=initial_state_activation, name=f'conductor_LSTM_h0_{i}') for i in range(decoder_lstms)]
     dense_decode_c0s = [layers.Dense(hidden_state_size, activation=initial_state_activation, name=f'conductor_LSTM_c0_{i}') for i in range(decoder_lstms)]
+
 
     ### set up layers for final decoding ###
     # concatenation layer for joining c repeated with ar input
     c_ar_concat = layers.concatenate
     
+    # set up decoder lstms
+    decoder_lstm_layers = []
+    for i in range(decoder_lstms):
+        decoder_lstm_layers.append(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'final_dec_LSTM_{i}'))
+
+    # set up dense layers for final output
+    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
+
+
     if stateful:
         # if stateful, then this is a prediction model! 
         # that means autoregressive inputs can't be all passed in at once, but need to be sorted step by step.
-        # return conductor out and dummy in for building autoencoder/decoder up to conductor outs
+        # return conductor out, decoder initial states out, and dummy in for building autoencoder/decoder model up to conductor outs
         # also return the decoder part, which will need to be manually used to get outputs
 
-        # need only one timestep at a time - have to retrieve autoregressive inputs
+        ### initial states for decoder - completes conductor model.
+        decoder_initial_h0s = [get_h0(conductor_out) for get_h0 in dense_decode_h0s]
+        decoder_initial_c0s = [get_c0(conductor_out) for get_c0 in dense_decode_c0s]
+
+        # conductor input
         c_input = tf.keras.Input(batch_shape=(1,1,conductor_state_size), name='c_input')
-        
+        # ar inputs
         ar_inputs = [tf.keras.Input((1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        # must sort them so that this is consistent with trained model
         ar_inputs.sort(key=lambda x: x.name)
-        # concatenate auto regressive inputs
         ar_concat = layers.concatenate(ar_inputs, axis=-1)
 
         # concatenate c_input with ar input
         c_ar_concat = layers.concatenate([c_input, ar_concat])
-        # pass to decoder LSTM
-        decoder_lstm = layers.LSTM(hidden_state_size, recurrent_dropout=recurrent_dropout, stateful=True, name='final_dec_LSTM')
-        x = decoder_lstm(c_ar_concat)
+
+        # Perform one step of decoder
+        # initial states will need to be set OUTSIDE this model, in prediction code
+        x = decoder_lstm_layers[0](c_ar_concat)
+        for i in range(1, decoder_lstms):
+            x = decoder_lstm_layers[i](x)
         # expand dimensions so that time distributed layer doesn't have to be removed from final dense layers
         x = layers.Lambda(lambda x: tf.expand_dims(x, 0), name='expand_dims')(x)
-        # set up dense layers for final output
-        output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
-        outputs = [[] for i in range(len(output_fns))]
-        # apply dense layers
+
+        # outputs doesn't need sublists - because we're only doing one step
+        outputs = []
         for i in range(len(output_fns)):
-            outputs[i].append(output_fns[i](x))
+            outputs.append(output_fns[i](x))
+
         decoder = tf.keras.Model(inputs=[c_input] + ar_inputs, outputs=outputs, name=f'decoder')
-        return conductor_out, dummy_in, decoder
+        return [conductor_out] + decoder_initial_h0s + decoder_initial_c0s, dummy_in, decoder
 
-    # set up decoder lstms
-    decoder_lstm_layers = []
-    for i in range(decoder_lstms):
-        decoder_lstm_layers.append(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'final_dec_LSTM_{i}'))
-
-    # set up dense layers for final output
-    output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
 
     # all decoder (sub step) LSTM operations for step i have c_i passed to them 
     c_repeater = layers.RepeatVector(conductor_substeps)
@@ -513,9 +525,15 @@ def create_hierarchical_decoder_graph(
     assert conductor_steps == conductor_out.shape[1]
     for i in range(conductor_steps):
         # get the c_i for the relevant substep
-        c = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(conductor_out)
+        c_i = layers.Lambda(lambda x: x[:,i,:], name=f'select_c_{i + 1}')(conductor_out)
+        # if this is a prediction model, then we need to do all the steps manually, so that t_n can be fed into t_n+1
+        if prediction_model:
+            for j in range(conductor_substeps):
+                pass
+            
+
         # repeat for each substep
-        c_repeated = c_repeater(c)
+        c_repeated = c_repeater(c_i)
 
         # append target outputs shifted to the right be a timestep
         ar_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_ar_{i + 1}')(ar_concat)
@@ -523,18 +541,18 @@ def create_hierarchical_decoder_graph(
         # join c repeated with teach forced input
         c_ar_step = c_ar_concat([c_repeated, ar_slice])
 
-        h0 = dense_decode_h0s[0](c)
-        c0 = dense_decode_c0s[0](c)
+        h0 = dense_decode_h0s[0](c_i)
+        c0 = dense_decode_c0s[0](c_i)
 
         # at this point for training, I need to have targets for previous timesteps appended to c_repeated, for teacher forcing.
         # repeated c is given as input, and c as the initial state
         x = decoder_lstm_layers[0](c_ar_step, initial_state=[h0,c0])
-        for i in range(1, decoder_lstms):
-            h0 = dense_decode_h0s[i](c)
-            c0 = dense_decode_c0s[i](c)
-            x = decoder_lstm_layers[i](x, initial_state=[h0,c0])
-        for i in range(len(output_fns)):
-            outputs[i].append(output_fns[i](x))
+        for j in range(1, decoder_lstms):
+            h0 = dense_decode_h0s[j](c_i)
+            c0 = dense_decode_c0s[j](c_i)
+            x = decoder_lstm_layers[j](x, initial_state=[h0,c0])
+        for j in range(len(output_fns)):
+            outputs[j].append(output_fns[j](x))
 
     final_concat = layers.concatenate
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
