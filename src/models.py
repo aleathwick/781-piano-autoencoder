@@ -15,9 +15,17 @@ n_notes = 88
 #                               mean=0., std=epsilon_std)
 #     return z_mean + K.exp(z_log_sigma) * epsilon
 
-########## Basic Recurrent ##########
+########## model inputs and outputs ##########
 
 def get_model_reqs(model_inputs=['H', 'V_mean'], model_outputs=['V']):
+    """Given a list of model input and model output names, returns namedtuple objects with attributes for those in/outputs. 
+    
+    Notes:
+    This function stores information on the standard way to deal with model in/outputs.
+    That way, when building models, in/outputs only need to be referred to by name.
+    In practice, this may hide some changes if I ever changed output activations between different models.
+
+    """
     n_notes=88
     # I assume that data, aside from the sequential dimentsion, will never have more than 1 dimension
     model_input = namedtuple('input', 'name dim seq')
@@ -40,6 +48,11 @@ def get_model_reqs(model_inputs=['H', 'V_mean'], model_outputs=['V']):
     return model_input_reqs, model_output_reqs
 
 def get_inputs(model_input_reqs, seq_length):
+    """Given a list of named tuples that list model inputs and attributes, produces relevant keras model inputs
+    
+    Notes:
+    Inputs may either be sequential or auxillary, i.e. non-sequential.
+    """
     seq_inputs = [tf.keras.Input(shape=(seq_length,seq_in.dim), name=seq_in.name + '_in') for seq_in in model_input_reqs if seq_in.seq == True]
     aux_inputs = [tf.keras.Input(shape=(aux_in.dim,), name=aux_in.name + '_in') for aux_in in model_input_reqs if aux_in.seq == False]
     return seq_inputs, aux_inputs
@@ -68,6 +81,8 @@ def sampling(batch_size, epsilon_std=1):
         return z_mean + tf.keras.backend.exp(z_log_sigma) * epsilon
     return sampling_fn
 
+
+########## Basic Recurrent ##########
 
 def create_simple_LSTM_RNN(model_input_reqs, model_output_reqs, seq_length=seq_length, lstm_layers=3, dense_layers=2, LSTM_state_size = 256,
                     dense_size = 128, recurrent_dropout = 0.0, ar_inputs=None):
@@ -381,34 +396,37 @@ def create_hierarchical_decoder_graph(
                         z,
                         model_output_reqs,
                         seq_length=seq_length,
-                        ar_inputs=None, 
+                        ar_inputs=None, # None => all 
                         # dense and lstm sizes
                         dense_size=256,
                         hidden_state_size=256,
                         decoder_lstms=2,
-                        conductor_state_size=None, # none => same as decoder
+                        conductor_state_size=None, # None => same as decoder
                         # conductor configuration
-                        conductors=2,
-                        conductor_steps=16,
-                        initial_state_from_dense=True,
-                        initial_state_activation=None,
+                        conductors=2, # no. of lstm layers for conductor 
+                        conductor_steps=16, # length of conductor outputs in time
+                        initial_state_from_dense=True, # initial conductor and decoder activations from dense layer
+                        initial_state_activation=None, # activation for aforementioned dense layer
                         recurrent_dropout=0.0,
-                        stateful=False,
+                        stateful=False, # use True to make a prediction model
                         prediction_model=False):
     """create a hierarchical decoder
 
     Arguments:
     z -- latent vector
     model_output_reqs -- list of named tuples, each containing information about the outputs required
+    ar_inputs -- which inputs to pass back in autoregressively. None indicates all.
 
     Returns:
     outputs -- list of outputs, used for compiling a model
-    ar_inputs -- teacher forced inputs - that is, outputs moved one step to the right
-
+    ar_inputs -- keras inputs representing auto-regressive inputs - outputs moved one step to the right.
+    decoder -- IF stateful is true, outputs and ar_inputs will be returned for compiling a model that ends
+                with conductor outputs and initial states for decoder lstms.
+                In addition, a separate stateful decoder model with seq_length of 1 will be returned.
 
     Notes:
-    still need to sort out initial states...
-    See https://nips2017creativity.github.io/doc/Hierarchical_Variational_Autoencoders_for_Music.pdf for inspiration
+    See https://nips2017creativity.github.io/doc/Hierarchical_Variational_Autoencoders_for_Music.pdf
+    for inspiration on architecture.
 
     """
     print('z type:', type(z))
@@ -477,9 +495,10 @@ def create_hierarchical_decoder_graph(
         ### initial states for decoder - completes conductor model.
         decoder_initial_h0s = [get_h0(conductor_out) for get_h0 in dense_decode_h0s]
         decoder_initial_c0s = [get_c0(conductor_out) for get_c0 in dense_decode_c0s]
+        initial_states = [initial for pair in zip(decoder_initial_h0s, decoder_initial_c0s) for initial in pair]
 
         # conductor input
-        c_input = tf.keras.Input(batch_shape=(1,1,conductor_state_size), name='c_input')
+        c_input = tf.keras.Input(batch_shape=(1,1,conductor_state_size), name='c_in')
         # ar inputs
         ar_inputs = [tf.keras.Input((1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
         # must sort them so that this is consistent with trained model
@@ -503,7 +522,7 @@ def create_hierarchical_decoder_graph(
             outputs.append(output_fns[i](x))
 
         decoder = tf.keras.Model(inputs=[c_input] + ar_inputs, outputs=outputs, name=f'decoder')
-        return [conductor_out] + decoder_initial_h0s + decoder_initial_c0s, dummy_in, decoder
+        return [conductor_out] + initial_states, dummy_in, decoder
 
 
     # all decoder (sub step) LSTM operations for step i have c_i passed to them 

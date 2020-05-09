@@ -3,13 +3,6 @@ from scipy.sparse import csc_matrix
 import src.midi_utils as midi_utils
 import tensorflow as tf
  
-class PianoPiece():
-     def __init__(self, pm=None, data_dict=None):
-        if pm != None:
-            self.H, self.O, self.V = midi_utils.pm2example(pm)
-        elif data_dict != None:
-            self.H = data_dict('H')
-        # and so on... probs won't use this 
 
 class ModelData():
     def __init__(self, data, name, transposable, activation=None, seq=False):

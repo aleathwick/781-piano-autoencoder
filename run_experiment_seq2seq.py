@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('tanh_initial_state_test')
+ex = Experiment('more_capacity_test')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -48,9 +48,9 @@ def train_config():
     ### general network params
     hierarchical = True
     variational = False
-    latent_size = 256
-    hidden_state = 512
-    dense_size = 512
+    latent_size = 400
+    hidden_state = 800
+    dense_size = 800
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -74,15 +74,15 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 400
+    epochs = 300
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
     clipvalue = 1
     # loss = losses.vae_custom_loss
-    loss = 'categorical_crossentropy'
+    loss = 'mse'
     kl_weight = 1
-    metrics = ['accuracy', 'categorical_crossentropy']
+    metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
     #other
     continue_run = None
