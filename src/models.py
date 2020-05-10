@@ -154,9 +154,9 @@ def create_LSTMencoder_graph(model_input_reqs,
     else:
         x = seq_inputs[0]
     for i in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'))(x)
+        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
     # pass through final lstm layer
-    x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name='enc_lstm_final'))(x)
+    x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{lstm_layers - 1}'), name=f'bi_enc_lstm_{lstm_layers - 1}')(x)
 
     # pass through non final dense layers
     for i in range(dense_layers - 1):

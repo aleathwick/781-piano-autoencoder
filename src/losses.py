@@ -20,6 +20,7 @@ def note_categorical_crossentropy(y_true, y_pred):
 
 # for custom loss: looks like extra variables can be reffered by using custom loss wrapper?
 # i.e. function within function, with outer function taking VOI as input, then passing to inner function
+# look here for how MusicVAE does kl loss: https://github.com/tensorflow/magenta/blob/master/magenta/models/music_vae/base_model.py
 def vae_custom_loss(z, free_bits=0, kl_weight=5):
     # for implementation of free_nats, see https://github.com/tensorflow/magenta/blob/master/magenta/models/music_vae/base_model.py
     free_nats = free_bits * tf.math.log(2.0)

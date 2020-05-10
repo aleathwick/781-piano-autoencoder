@@ -74,18 +74,18 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 300
+    epochs = 350
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
     clipvalue = 1
     # loss = losses.vae_custom_loss
-    loss = 'mse'
+    loss = 'categorical_crossentropy'
     kl_weight = 1
     metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
     #other
-    continue_run = None
+    continue_run = 139
     log_tensorboard = False
 
 
