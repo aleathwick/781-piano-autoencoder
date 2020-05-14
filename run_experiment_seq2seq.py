@@ -1,7 +1,7 @@
 from importlib import reload
 import numpy as np
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import matplotlib.pyplot as plt
 from scipy.sparse import csc_matrix, csr_matrix
 import pickle
@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('more_capacity_test')
+ex = Experiment('continue_145_long')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -37,7 +37,7 @@ def train_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 32
+    seq_length = 64
     use_base_key = True
     transpose = False
     st = 0
@@ -47,10 +47,10 @@ def train_config():
     ##### Model Config ####
     ### general network params
     hierarchical = True
-    variational = False
-    latent_size = 400
-    hidden_state = 800
-    dense_size = 800
+    variational = True
+    latent_size = 256
+    hidden_state = 512
+    dense_size = 512
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -66,7 +66,7 @@ def train_config():
     # ar_inputs only works as parameter for non hierarchical graph, currently
     ar_inputs = None
     conductors=2
-    conductor_steps=2
+    conductor_steps= int(seq_length/16)
     conductor_state_size=None # none => same as decoder
     initial_state_from_dense=True
     initial_state_activation='tanh'
@@ -74,18 +74,18 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 350
+    epochs = 300
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
     clipvalue = 1
-    # loss = losses.vae_custom_loss
-    loss = 'categorical_crossentropy'
+    loss = losses.vae_custom_loss
+    # loss = 'categorical_crossentropy'
     kl_weight = 1
     metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
     #other
-    continue_run = 139
+    continue_run = None
     log_tensorboard = False
 
 
@@ -178,6 +178,7 @@ def train_model(_run,
                                                     latent_size=latent_size,
                                                     seq_length=seq_length,
                                                     recurrent_dropout=recurrent_dropout,
+                                                    z_activation=z_activation,
                                                     variational=variational)
     if variational:
         loss = loss(z, free_bits=free_bits, kl_weight=kl_weight)
@@ -200,7 +201,8 @@ def train_model(_run,
                                                                 conductor_steps=conductor_steps,
                                                                 initial_state_from_dense=initial_state_from_dense,
                                                                 initial_state_activation=initial_state_activation,
-                                                                recurrent_dropout=recurrent_dropout)
+                                                                recurrent_dropout=recurrent_dropout,
+                                                                batch_size=batch_size)
     else:
         pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z,
                                                             model_output_reqs,

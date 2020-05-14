@@ -154,7 +154,8 @@ def create_LSTMencoder_graph(model_input_reqs,
     else:
         x = seq_inputs[0]
     for i in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
+        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True,
+                                recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
     # pass through final lstm layer
     x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{lstm_layers - 1}'), name=f'bi_enc_lstm_{lstm_layers - 1}')(x)
 
@@ -409,7 +410,8 @@ def create_hierarchical_decoder_graph(
                         initial_state_activation=None, # activation for aforementioned dense layer
                         recurrent_dropout=0.0,
                         stateful=False, # use True to make a prediction model
-                        prediction_model=False):
+                        prediction_model=False,
+                        batch_size=None):
     """create a hierarchical decoder
 
     Arguments:
@@ -532,7 +534,7 @@ def create_hierarchical_decoder_graph(
     outputs = [[] for i in range(len(output_fns))]
 
     # need teacher forced inputs (sequential outputs moved right by a sub step)
-    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=batch_size, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
     ar_inputs.sort(key=lambda x: x.name)
     # concatenate teacher forced
     ar_concat = layers.concatenate(ar_inputs, axis=-1)
@@ -558,7 +560,7 @@ def create_hierarchical_decoder_graph(
         ar_slice = layers.Lambda(lambda x: x[...,i*conductor_substeps:(i+1)*conductor_substeps,:], name=f'select_ar_{i + 1}')(ar_concat)
 
         # join c repeated with teach forced input
-        c_ar_step = c_ar_concat([c_repeated, ar_slice])
+        c_ar_step = c_ar_concat([c_repeated, ar_slice], axis=-1)
 
         h0 = dense_decode_h0s[0](c_i)
         c0 = dense_decode_c0s[0](c_i)
