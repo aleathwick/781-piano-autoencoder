@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('continue_145_long')
+ex = Experiment('first_proper_vae?')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -74,12 +74,12 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 300
+    epochs = 800
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
     clipvalue = 1
-    loss = losses.vae_custom_loss
+    loss = losses.vae_custom_loss2
     # loss = 'categorical_crossentropy'
     kl_weight = 1
     metrics = ['accuracy', 'categorical_crossentropy', 'mse']

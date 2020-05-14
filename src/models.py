@@ -75,10 +75,9 @@ def sampling(batch_size, epsilon_std=1):
     def sampling_fn(z):
         z_mean, z_log_sigma = z
         latent_size = z_mean.shape[-1]
-        print('latent size, from sampling: ', latent_size)
         epsilon = tf.keras.backend.random_normal(shape=(batch_size, latent_size),
                                 mean=0., stddev=epsilon_std)
-        return z_mean + tf.keras.backend.exp(z_log_sigma) * epsilon
+        return z_mean + z_log_sigma * epsilon
     return sampling_fn
 
 
@@ -163,8 +162,11 @@ def create_LSTMencoder_graph(model_input_reqs,
     for i in range(dense_layers - 1):
         x = layers.Dense(dense_size, activation='relu', name=f'enc_dense_{i}')(x)
     if variational:
-        z_mean = layers.Dense(latent_size, activation=z_activation, name='z_mean')(x)
-        z_log_sigma = layers.Dense(latent_size, activation=z_activation, name='z_log_sigma')(x)
+        # see here https://github.com/tensorflow/magenta/blob/85ef5267513f62f4a40b01b2a1ee488f90f64a13/magenta/models/music_vae/base_model.py#L201
+        # for how musicVAE do this
+        initializer = tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.001, seed=None)
+        z_mean = layers.Dense(latent_size, activation=z_activation, kernel_initializer=initializer, name='z_mean')(x)
+        z_log_sigma = layers.Dense(latent_size, activation='softplus', kernel_initializer=initializer, name='z_log_sigma')(x)
         z = [z_mean, z_log_sigma]
     else:
         z = layers.Dense(latent_size, activation=z_activation, name='z')(x)
