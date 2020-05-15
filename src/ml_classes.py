@@ -86,8 +86,8 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         self.on_epoch_end()
         # number of semitones to randomly transpose by
         self.st = st
-        # this controls epoch
-        self.epoch_per_dataset = epoch_per_dataset
+        # this controls epoch length
+        self.epoch_per_dataset = 1 if epoch_per_dataset == None else epoch_per_dataset
         self.on_epoch_end()
 
     def __transpose(self):

@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('first_proper_vae?')
+ex = Experiment('continue_171')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -41,7 +41,7 @@ def train_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 2
     vel_cutoff = 4
 
     ##### Model Config ####
@@ -74,7 +74,7 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 800
+    epochs = 400
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
@@ -85,7 +85,7 @@ def train_config():
     metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
     #other
-    continue_run = None
+    continue_run = 171
     log_tensorboard = False
 
 
@@ -225,7 +225,8 @@ def train_model(_run,
     dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
                                         [model_in.name for model_in in model_input_reqs],
                                         [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length,
+                                        epoch_per_dataset=nth_file)
 
     dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
                                         [model_in.name for model_in in model_input_reqs],
