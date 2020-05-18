@@ -17,7 +17,7 @@ n_notes = 88
 
 ########## model inputs and outputs ##########
 
-def get_model_reqs(model_inputs=['H', 'V_mean'], model_outputs=['V']):
+def get_model_reqs(model_inputs, model_outputs, **kwargs):
     """Given a list of model input and model output names, returns namedtuple objects with attributes for those in/outputs. 
     
     Notes:
@@ -57,7 +57,7 @@ def get_inputs(model_input_reqs, seq_length):
     aux_inputs = [tf.keras.Input(shape=(aux_in.dim,), name=aux_in.name + '_in') for aux_in in model_input_reqs if aux_in.seq == False]
     return seq_inputs, aux_inputs
 
-def sampling(batch_size, epsilon_std=1):
+def sampling(batch_size, epsilon_std=1, **kwargs):
     """sample from the latent space
 
     Arguments:
@@ -129,7 +129,9 @@ def create_LSTMencoder_graph(model_input_reqs,
                         dense_size = 512,  
                         recurrent_dropout = 0.0,
                         z_activation='relu',
-                        variational=False):
+                        variational=False,
+                        conv=False, # dictionary containing filter parameters
+                        **kwargs):
     """layers for LSTM encoder, returning latent vector as output
     
     Arguments:
@@ -158,6 +160,10 @@ def create_LSTMencoder_graph(model_input_reqs,
     # pass through final lstm layer
     x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{lstm_layers - 1}'), name=f'bi_enc_lstm_{lstm_layers - 1}')(x)
 
+    if conv != None and conv != False:
+        convolved_h = convolve_H(seq_inputs, conv)
+        x = layers.concatenate([convolved_h, x], axis=-1)
+
     # pass through non final dense layers
     for i in range(dense_layers - 1):
         x = layers.Dense(dense_size, activation='relu', name=f'enc_dense_{i}')(x)
@@ -172,6 +178,33 @@ def create_LSTMencoder_graph(model_input_reqs,
         z = layers.Dense(latent_size, activation=z_activation, name='z')(x)
 
     return z, seq_inputs + aux_inputs
+
+
+def convolve_H(seq_inputs, conv):
+    assert len(seq_inputs) == 1, f'There should only be one sequential input, but there are {len(seq_inputs)}'
+    x = seq_inputs[0]
+    # need to sort out data_format... channels_last, probably, and add extra dimension there
+    # default axis is -1
+    x = layers.Lambda(lambda x: tf.keras.backend.expand_dims(x, -1))(x)
+    
+    for i in range(len(conv['F_n'])):
+        x = layers.Conv2D(conv['F_n'][i], conv['F_s'][i], strides=conv['strides'][i], padding='same', name=f'enc_conv_{i}')(x)
+        x = layers.Activation('relu')(x)
+        # probs don't want max pooling...
+        # x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+
+
+    # x = layers.MaxPooling2D(pool_size=(4, 4))(x)
+    # could try seperable conv setting data format to channels first, so that pitch and time weights are learnt separately.
+    # but then stride can't be designated for the channel dimension.
+    # layers.SeparableConv2D(filters, kernel_size, strides=(), )
+    # dilation rate could be used like stride...
+    # x = layers.Conv2D(5, (16,12), dilation_rate=(16, 12), padding='valid')(x)
+
+    flat_x = layers.Flatten()(x)
+
+    return flat_x
+
 
 def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64):
     seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
@@ -210,7 +243,8 @@ def create_conv_encoder_graph(model_input_reqs, seq_length=64, latent_size = 64)
 ########## Decoders ##########
 
 def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_length,
-                    lstm_layers = 2, dense_layers = 2, hidden_state_size = 512, dense_size = 512, n_notes=88, chroma=False, recurrent_dropout = 0.0):
+                    lstm_layers = 2, dense_layers = 2, hidden_state_size = 512, dense_size = 512,
+                    n_notes=88, chroma=False, recurrent_dropout = 0.0, **kwargs):
     """creates an LSTM based decoder, NOT autoregressive - handles all outputs at once
     
     Arguments:
@@ -238,7 +272,8 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
 
 
 def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
-                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0, stateful=False):
+                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False,
+                    recurrent_dropout = 0.0, stateful=False, **kwargs):
     """creates an autoregressive LSTM based decoder
 
     
@@ -413,7 +448,9 @@ def create_hierarchical_decoder_graph(
                         recurrent_dropout=0.0,
                         stateful=False, # use True to make a prediction model
                         prediction_model=False,
-                        batch_size=None):
+                        batch_size=None,
+                        ar_inc_batch_shape=False, #sometimes needed to make shapes mesh, in TF 2.0.0
+                        **kwargs):
     """create a hierarchical decoder
 
     Arguments:
@@ -504,7 +541,10 @@ def create_hierarchical_decoder_graph(
         # conductor input
         c_input = tf.keras.Input(batch_shape=(1,1,conductor_state_size), name='c_in')
         # ar inputs
-        ar_inputs = [tf.keras.Input((1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        if ar_inc_batch_shape:
+            ar_inputs = [tf.keras.Input(batch_shape=(batch_size,1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+        else:
+            ar_inputs = [tf.keras.Input((1,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
         # must sort them so that this is consistent with trained model
         ar_inputs.sort(key=lambda x: x.name)
         ar_concat = layers.concatenate(ar_inputs, axis=-1)
@@ -536,7 +576,7 @@ def create_hierarchical_decoder_graph(
     outputs = [[] for i in range(len(output_fns))]
 
     # need teacher forced inputs (sequential outputs moved right by a sub step)
-    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=batch_size, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=None, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
     ar_inputs.sort(key=lambda x: x.name)
     # concatenate teacher forced
     ar_concat = layers.concatenate(ar_inputs, axis=-1)
@@ -581,6 +621,7 @@ def create_hierarchical_decoder_graph(
     outputs = [final_concat(unconcat_out, axis=-2, name=raw_out.name + '_out') for unconcat_out, raw_out in zip(outputs, model_output_reqs)]
     
     return outputs, ar_inputs + [dummy_in]
+
 
 def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
                 conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None, stateful=False):

@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('continue_171')
+ex = Experiment('continue_203_clip_weights')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -41,13 +41,13 @@ def train_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = 2
+    nth_file = None
     vel_cutoff = 4
 
     ##### Model Config ####
     ### general network params
     hierarchical = True
-    variational = True
+    variational = False
     latent_size = 256
     hidden_state = 512
     dense_size = 512
@@ -57,6 +57,14 @@ def train_config():
     ### encoder params
     encoder_lstms = 2
     z_activation = None
+    conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
+            'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
+            'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)]  # strides
+            }
+    # conv = {'F_n': [4, 8, 12], # number of filters
+    #         'F_s': [(8,12), (4,4), (3,3)], # size of filters
+    #         'strides': [(4, 12), (1, 1), (1,1)]  # strides
+    #         }
 
     ### sampling params... if applicable.
     epsilon_std=1
@@ -78,14 +86,14 @@ def train_config():
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
-    clipvalue = 1
-    loss = losses.vae_custom_loss2
-    # loss = 'categorical_crossentropy'
+    clipvalue = 0.02
+    # loss = losses.vae_custom_loss2
+    loss = 'categorical_crossentropy'
     kl_weight = 1
-    metrics = ['accuracy', 'categorical_crossentropy', 'mse']
+    metrics = ['accuracy', 'categorical_crossentropy']
 
     #other
-    continue_run = 171
+    continue_run = 203
     log_tensorboard = False
 
 
@@ -111,6 +119,7 @@ def train_model(_run,
                 recurrent_dropout,
                 encoder_lstms,
                 z_activation,
+                conv,
 
                 # sampling params
                 epsilon_std,
@@ -179,7 +188,8 @@ def train_model(_run,
                                                     seq_length=seq_length,
                                                     recurrent_dropout=recurrent_dropout,
                                                     z_activation=z_activation,
-                                                    variational=variational)
+                                                    variational=variational,
+                                                    conv=conv)
     if variational:
         loss = loss(z, free_bits=free_bits, kl_weight=kl_weight)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
@@ -225,8 +235,7 @@ def train_model(_run,
     dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
                                         [model_in.name for model_in in model_input_reqs],
                                         [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length,
-                                        epoch_per_dataset=nth_file)
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
                                         [model_in.name for model_in in model_input_reqs],
