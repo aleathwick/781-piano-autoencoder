@@ -55,7 +55,7 @@ def vae_custom_loss(z, free_bits=0, kl_weight=5):
     return vae_loss
 
 
-def vae_custom_loss2(z, free_bits=0, kl_weight=1, **kwargs):
+def vae_custom_loss2(z, free_bits=0, kl_weight=1):
     """Function for getting function to calculate kl loss + xent loss
     
     Arguments:

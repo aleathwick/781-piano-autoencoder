@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('continue_203_clip_weights')
+ex = Experiment('no_conv,_no_z_activation')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -57,14 +57,12 @@ def train_config():
     ### encoder params
     encoder_lstms = 2
     z_activation = None
-    conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
-            'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
-            'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)]  # strides
-            }
-    # conv = {'F_n': [4, 8, 12], # number of filters
-    #         'F_s': [(8,12), (4,4), (3,3)], # size of filters
-    #         'strides': [(4, 12), (1, 1), (1,1)]  # strides
+    conv = False
+    # conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
+    #         'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
+    #         'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)]  # strides
     #         }
+
 
     ### sampling params... if applicable.
     epsilon_std=1
@@ -82,18 +80,18 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 400
+    epochs = 600
     monitor = 'loss'
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
-    clipvalue = 0.02
+    clipvalue = 0.2
     # loss = losses.vae_custom_loss2
     loss = 'categorical_crossentropy'
     kl_weight = 1
     metrics = ['accuracy', 'categorical_crossentropy']
 
     #other
-    continue_run = 203
+    continue_run = None
     log_tensorboard = False
 
 
