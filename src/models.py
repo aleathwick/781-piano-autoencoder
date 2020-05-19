@@ -57,6 +57,53 @@ def get_inputs(model_input_reqs, seq_length):
     aux_inputs = [tf.keras.Input(shape=(aux_in.dim,), name=aux_in.name + '_in') for aux_in in model_input_reqs if aux_in.seq == False]
     return seq_inputs, aux_inputs
 
+
+########## loading weights ##########
+
+# see https://github.com/keras-team/keras/issues/5397#issuecomment-583898997
+def load_weights_safe(model, weights_path, by_name=True):
+    """loads weights (in place), checks which layers had their weights change, prints names of any that aren't changed
+    
+    Arguments:
+    model -- a keras model
+    weights_path -- path to a weights file to load
+    by_name -- bool, whether or not to load layer weights by name
+    
+    """
+    initial_weights = [layer.get_weights() for layer in model.layers]
+    model.load_weights(weights_path, by_name=by_name)
+    missing=False
+    for layer, initial in zip(model.layers, initial_weights):
+        weights = layer.get_weights()
+        if weights and all(tf.nest.map_structure(np.array_equal, weights, initial)):
+            print(f'Checkpoint contained no weights for layer {layer.name}!')
+            missing=True
+    
+    # if any model weights are missing, revert model back to original weights
+    if missing:
+        revert = True
+        # check if weights are the same as initial values; if not, set them back to initial values
+        for layer, initial in zip(model.layers, initial_weights):
+            weights = layer.get_weights()
+            if weights and all(tf.nest.map_structure(np.array_equal, weights, initial)):
+                pass
+            else:
+                layer.set_weights(initial)
+        
+        # check that all were set back to initial values successfully
+        for layer, initial in zip(model.layers, initial_weights):
+            weights = layer.get_weights()
+            if weights and all(tf.nest.map_structure(np.array_equal, weights, initial)):
+                pass
+            else:
+                revert = False
+                print(f'Failed to return {layer.name} to original value!')
+        if revert:
+            print('Weights were missing for some layers in model checkpoint; layer weights reverted to original values')
+
+
+
+
 def sampling(batch_size, epsilon_std=1, **kwargs):
     """sample from the latent space
 
@@ -124,7 +171,7 @@ def create_LSTMencoder_graph(model_input_reqs,
                         seq_length = seq_length,  
                         lstm_layers = 3,  
                         dense_layers = 2,  
-                        hidden_state_size = 512,  
+                        hidden_state = 512,  
                         latent_size = 256,
                         dense_size = 512,  
                         recurrent_dropout = 0.0,
@@ -138,7 +185,7 @@ def create_LSTMencoder_graph(model_input_reqs,
     seq_inputs -- inputs that are sequential in nature
     aux_inputs -- other inputs
     seq_length -- time steps per training example
-    hidden_state_size -- size of LSTM hidden state
+    hidden_state -- size of LSTM hidden state
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
     
     """
@@ -155,10 +202,10 @@ def create_LSTMencoder_graph(model_input_reqs,
     else:
         x = seq_inputs[0]
     for i in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True,
+        x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True,
                                 recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
     # pass through final lstm layer
-    x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{lstm_layers - 1}'), name=f'bi_enc_lstm_{lstm_layers - 1}')(x)
+    x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{lstm_layers - 1}'), name=f'bi_enc_lstm_{lstm_layers - 1}')(x)
 
     if conv != None and conv != False:
         convolved_h = convolve_H(seq_inputs, conv)
@@ -190,6 +237,8 @@ def convolve_H(seq_inputs, conv):
     for i in range(len(conv['F_n'])):
         x = layers.Conv2D(conv['F_n'][i], conv['F_s'][i], strides=conv['strides'][i], padding='same', name=f'enc_conv_{i}')(x)
         x = layers.Activation('relu')(x)
+        if conv.get('batch_norm', False):
+            x = layers.BatchNormalization()(x)
         # probs don't want max pooling...
         # x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 
@@ -272,14 +321,14 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
 
 
 def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
-                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False,
+                    lstm_layers = 2, hidden_state = 256, dense_size = 256, n_notes=88, chroma=False,
                     recurrent_dropout = 0.0, stateful=False, **kwargs):
     """creates an autoregressive LSTM based decoder
 
     
     Arguments:
     seq_length -- time steps per training example
-    hidden_state_size -- size of LSTM hidden state
+    hidden_state -- size of LSTM hidden state
     ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
 
@@ -308,12 +357,12 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     
     # pass input through non final lstm layers, returning sequences each time
     for i in range(lstm_layers - 1):
-        x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}')(x)
+        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}')(x)
     
     # concat teacher forced inputs with x
     # pass through final lstm layer
     x = layers.concatenate(ar_inputs + [x], axis=-1)
-    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x)
+    x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x)
 
     # attempt to rebuild input
     outputs = []
@@ -323,14 +372,14 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
     return outputs, ar_inputs
 
 def create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_length, ar_inputs=None,
-                    lstm_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0,
+                    lstm_layers = 2, hidden_state = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0,
                     stateful=False):
     """creates an autoregressive LSTM based decoder, with an explicit for loop for LSTM operations
 
     
     Arguments:
     seq_length -- time steps per training example
-    hidden_state_size -- size of LSTM hidden state
+    hidden_state -- size of LSTM hidden state
     ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
 
@@ -360,8 +409,8 @@ def create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_le
 
     LSTMs = []
     for i in range(lstm_layers - 1):
-        LSTMs.append(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}'))
-    final_LSTM = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')
+        LSTMs.append(layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}'))
+    final_LSTM = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')
     
     #layer for concatenating x2 with ar_inputs 
     x2_ar_concat = layers.concatenate
@@ -390,12 +439,12 @@ def create_LSTMdecoder_graph_ar_explicit(z, model_output_reqs, seq_length=seq_le
 
 
 def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_length,
-                    lstm_layers = 3, dense_layers = 2, hidden_state_size = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
+                    lstm_layers = 3, dense_layers = 2, hidden_state = 256, dense_size = 256, n_notes=88, chroma=False, recurrent_dropout = 0.0):
     """creates an LSTM based decoder
     
     Arguments:
     seq_length -- time steps per training example
-    hidden_state_size -- size of LSTM hidden state
+    hidden_state -- size of LSTM hidden state
     supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
     
     """
@@ -409,12 +458,12 @@ def create_LSTMdecoder_pred(latent_vector, model_output_reqs, seq_length=seq_len
     
     # pass input through non final lstm layers, returning sequences each time
     for i in range(lstm_layers - 1):
-        x = layers.Bidirectional(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}'))(x)
+        x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}'))(x)
     
     # concat teacher forced inputs with x
     # pass through final lstm layer
     x = layers.concatenate(ar_inputs + [x], axis=-1)
-    x = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name='dec_lstm_final')(x)
+    x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name='dec_lstm_final')(x)
 
 
 
@@ -437,7 +486,7 @@ def create_hierarchical_decoder_graph(
                         ar_inputs=None, # None => all 
                         # dense and lstm sizes
                         dense_size=256,
-                        hidden_state_size=256,
+                        hidden_state=256,
                         decoder_lstms=2,
                         conductor_state_size=None, # None => same as decoder
                         # conductor configuration
@@ -479,7 +528,7 @@ def create_hierarchical_decoder_graph(
         assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
     
     if conductor_state_size == None:
-        conductor_state_size = hidden_state_size
+        conductor_state_size = hidden_state
 
     # calculate conductor substeps ('sub beats')
     conductor_substeps = int(seq_length / conductor_steps)
@@ -510,8 +559,8 @@ def create_hierarchical_decoder_graph(
             conductor_out = layers.LSTM(conductor_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout)(conductor_out)
     
     # dense layers for decoder initial states
-    dense_decode_h0s = [layers.Dense(hidden_state_size, activation=initial_state_activation, name=f'conductor_LSTM_h0_{i}') for i in range(decoder_lstms)]
-    dense_decode_c0s = [layers.Dense(hidden_state_size, activation=initial_state_activation, name=f'conductor_LSTM_c0_{i}') for i in range(decoder_lstms)]
+    dense_decode_h0s = [layers.Dense(hidden_state, activation=initial_state_activation, name=f'conductor_LSTM_h0_{i}') for i in range(decoder_lstms)]
+    dense_decode_c0s = [layers.Dense(hidden_state, activation=initial_state_activation, name=f'conductor_LSTM_c0_{i}') for i in range(decoder_lstms)]
 
 
     ### set up layers for final decoding ###
@@ -521,7 +570,7 @@ def create_hierarchical_decoder_graph(
     # set up decoder lstms
     decoder_lstm_layers = []
     for i in range(decoder_lstms):
-        decoder_lstm_layers.append(layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'final_dec_LSTM_{i}'))
+        decoder_lstm_layers.append(layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'final_dec_LSTM_{i}'))
 
     # set up dense layers for final output
     output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
@@ -623,7 +672,7 @@ def create_hierarchical_decoder_graph(
     return outputs, ar_inputs + [dummy_in]
 
 
-def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state_size=256, conductor_state_size=None,
+def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_length, dense_size=256, hidden_state=256, conductor_state_size=None,
                 conductors=2, conductor_steps=8, recurrent_dropout=0.0, initial_state_from_dense=True, ar_inputs=None, stateful=False):
     """create a hierarchical decoder
 
@@ -643,7 +692,7 @@ def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_leng
 
     
     if conductor_state_size == None:
-        conductor_state_size = hidden_state_size
+        conductor_state_size = hidden_state
 
     # calculate conductor substeps ('sub beats')
     conductor_substeps = int(seq_length / conductor_steps)
@@ -675,7 +724,7 @@ def create_hierarchical_decoder_graph2(z, model_output_reqs, seq_length=seq_leng
     # set up decoder lstm
     if stateful:
         seq_length
-    decoder_lstm = layers.LSTM(hidden_state_size, return_sequences=True, recurrent_dropout=recurrent_dropout, name='final_dec_LSTM')
+    decoder_lstm = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name='final_dec_LSTM')
 
     # set up dense layers for final output
     output_fns = [layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_unconcat') for output in model_output_reqs]
