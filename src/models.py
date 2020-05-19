@@ -82,24 +82,17 @@ def load_weights_safe(model, weights_path, by_name=True):
     # if any model weights are missing, revert model back to original weights
     if missing:
         revert = True
-        # check if weights are the same as initial values; if not, set them back to initial values
+        for layer, initial in zip(model.layers, initial_weights):
+            layer.set_weights(initial)
         for layer, initial in zip(model.layers, initial_weights):
             weights = layer.get_weights()
             if weights and all(tf.nest.map_structure(np.array_equal, weights, initial)):
-                pass
-            else:
-                layer.set_weights(initial)
-        
-        # check that all were set back to initial values successfully
-        for layer, initial in zip(model.layers, initial_weights):
-            weights = layer.get_weights()
-            if weights and all(tf.nest.map_structure(np.array_equal, weights, initial)):
-                pass
+                print(f'returned {layer.name} weights to original value')
             else:
                 revert = False
-                print(f'Failed to return {layer.name} to original value!')
+                print(f'FAILED to return {layer.name} to original value!')
         if revert:
-            print('Weights were missing for some layers in model checkpoint; layer weights reverted to original values')
+            print('All layer weights reverted to original values')
 
 
 
