@@ -22,7 +22,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('no_conv,_no_z_activation')
+ex = Experiment('reweight_losses')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
@@ -57,11 +57,12 @@ def train_config():
     ### encoder params
     encoder_lstms = 2
     z_activation = None
-    conv = False
-    # conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
-    #         'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
-    #         'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)]  # strides
-    #         }
+    # conv = False
+    conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
+            'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
+            'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
+            'batch_norm': True # apply batch norm after each conv operation (after activation)
+            }
 
 
     ### sampling params... if applicable.
@@ -80,11 +81,12 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 600
+    epochs = 1200
     monitor = 'loss'
+    loss_weights = [1, 3]
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     free_bits=0
-    clipvalue = 0.2
+    clipvalue = 1
     # loss = losses.vae_custom_loss2
     loss = 'categorical_crossentropy'
     kl_weight = 1
@@ -136,6 +138,7 @@ def train_model(_run,
                 lr,
                 epochs,
                 monitor,
+                loss_weights,
                 free_bits,
                 clipvalue,
                 loss,
@@ -180,7 +183,7 @@ def train_model(_run,
 
 
     z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs,
-                                                    hidden_state_size = hidden_state,
+                                                    hidden_state = hidden_state,
                                                     dense_size=dense_size,
                                                     latent_size=latent_size,
                                                     seq_length=seq_length,
@@ -201,7 +204,7 @@ def train_model(_run,
                                                                 ar_inputs=ar_inputs, 
                                                                 # dense and lstm sizes
                                                                 dense_size=dense_size,
-                                                                hidden_state_size=hidden_state,
+                                                                hidden_state=hidden_state,
                                                                 decoder_lstms=decoder_lstms,
                                                                 conductor_state_size=conductor_state_size, # none => same as decoder
                                                                 # conductor configuration
@@ -215,7 +218,7 @@ def train_model(_run,
         pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z,
                                                             model_output_reqs,
                                                             seq_length=seq_length,
-                                                            hidden_state_size=hidden_state,
+                                                            hidden_state=hidden_state,
                                                             dense_size=dense_size,
                                                             ar_inputs=ar_inputs,
                                                             recurrent_dropout=recurrent_dropout)
@@ -241,15 +244,34 @@ def train_model(_run,
                                         t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
-    autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics)
+    autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
     history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
 
     # save the model history
     with open(f'{path}history-{epochs}epochs.json', 'w') as f:
         json.dump(str(history.history), f)
 
-    # add weights to sacred
-    exp_utils.capture_weights(_run)
+    ### Make some predictions ###
+    # load best weights
+    models.load_weights_safe(autoencoder, f'experiments/run_{run}/{run}_best_val_weights.hdf5', by_name=False)
+    # get some random examples from the validation data
+    random_examples, idx = data.n_rand_examples(model_datas_val)
+    pred = autoencoder.predict(random_examples)
+
+    # find axis that corresponds to velocity
+    v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
+    print('velocity index:', v_index)
+    model_datas_pred = copy.deepcopy(model_datas_val)
+    model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
+    for i in idx:
+        pm_original = data.examples2pm(model_datas, i)
+        pm_pred = data.examples2pm(model_datas_pred, i)
+        pm_original.write(f'experiments/run_{run}/ex{i}original.mid')
+        pm_pred.write(f'experiments/run_{run}/ex{i}prediction_teacher_forced.mid')
+
+
+    # add weights to sacred... Or not, they can exceed max size! 
+    # exp_utils.capture_weights(_run)
 
     # save a graph of the training vs validation progress
     models.plt_metric(history.history)

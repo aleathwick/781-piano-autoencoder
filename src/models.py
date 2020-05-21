@@ -79,8 +79,13 @@ def load_weights_safe(model, weights_path, by_name=True):
             print(f'Checkpoint contained no weights for layer {layer.name}!')
             missing=True
     
-    # if any model weights are missing, revert model back to original weights
-    if missing:
+    
+    if not missing:
+        print('weights loaded successfully')
+    
+    # if any model weights are missing, we MAY wish to revert model back to original weights
+    attempt_revert = False
+    if missing and attempt_revert:
         revert = True
         for layer, initial in zip(model.layers, initial_weights):
             layer.set_weights(initial)
@@ -93,6 +98,8 @@ def load_weights_safe(model, weights_path, by_name=True):
                 print(f'FAILED to return {layer.name} to original value!')
         if revert:
             print('All layer weights reverted to original values')
+    
+    
 
 
 
@@ -231,7 +238,7 @@ def convolve_H(seq_inputs, conv):
         x = layers.Conv2D(conv['F_n'][i], conv['F_s'][i], strides=conv['strides'][i], padding='same', name=f'enc_conv_{i}')(x)
         x = layers.Activation('relu')(x)
         if conv.get('batch_norm', False):
-            x = layers.BatchNormalization()(x)
+            x = layers.BatchNormalization(name=f'enc_batch_norm_{i}')(x)
         # probs don't want max pooling...
         # x = layers.MaxPooling2D(pool_size=(2, 2))(x)
 

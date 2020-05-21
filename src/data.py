@@ -151,6 +151,43 @@ def examples2pm(md, i=None, sub_beats=4):
     pm = HOV2pm(md)
     return pm
 
+
+def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
+    """gets n random examples from dictionary of model datas, prepared for prediction (duplicates some as ar inputs, adds dummy input)
+    
+    Arguments:
+    model_datas -- dictionary of model data objects (see ml_classes.py)
+    n -- number of random examples to select
+    idx -- a list of indices, used if n is 0 or None 
+    
+    Returns:
+    random_examples -- dictionary ready of data for predicting on
+    idx -- indices of examples
+    """
+
+    random_examples = {}
+
+    # select n random examples
+    if n !=0 and n != None:
+        idx = np.random.randint(0, len(model_datas['H']), n)
+    
+    # add dummy variable (for conductor LSTM)
+    random_examples['dummy']= np.zeros((len(idx),0))
+
+    # extract data for each training example from the model datas
+    for md in model_datas.values():
+        # need to check data isn't a sparse matrix
+        if isinstance(md.data[0], csc_matrix):
+            random_examples[md.name + '_in'] = md.data[idx,...].toarray()
+        else:
+            random_examples[md.name + '_in'] = md.data[idx,...]
+        random_examples[md.name + '_in'] = random_examples[md.name + '_in']
+        # if it is sequential data, also add it as an ar input (just in case)
+        if md.seq:
+            random_examples[md.name + '_ar'] = np.concatenate([np.zeros((len(idx),1, md.dim)), md.data[idx,...][:,:-1]], axis=-2)
+    
+    return random_examples, idx
+
 ######## ########
 
 def int_transpose(np1, semitones):
