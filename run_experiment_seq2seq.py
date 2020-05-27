@@ -22,8 +22,16 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('reweight_losses')
+ex = Experiment('pitch_stride_6')
 ex.observers.append(MongoObserver(db_name='sacred'))
+
+### take care of output
+
+# ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
+
+from sacred.utils import apply_backspaces_and_linefeeds
+ex.captured_out_filter = apply_backspaces_and_linefeeds
+
 
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
 # last answer might fix it: https://stackoverflow.com/questions/57704771/inputs-to-eager-execution-function-cannot-be-keras-symbolic-tensors
@@ -58,9 +66,10 @@ def train_config():
     encoder_lstms = 2
     z_activation = None
     # conv = False
-    conv = {'F_n': [8, 8, 12, 12, 12, 12], # number of filters
+    pitch_stride = 6
+    conv = {'F_n': [32, 32, 48, 48, 48, 24], # number of filters
             'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
-            'strides': [(1, 12), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
+            'strides': [(1, pitch_stride), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
             'batch_norm': True # apply batch norm after each conv operation (after activation)
             }
 
@@ -245,30 +254,11 @@ def train_model(_run,
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
     autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
-    history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=1)
+    history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
     # save the model history
     with open(f'{path}history-{epochs}epochs.json', 'w') as f:
         json.dump(str(history.history), f)
-
-    ### Make some predictions ###
-    # load best weights
-    models.load_weights_safe(autoencoder, f'experiments/run_{run}/{run}_best_val_weights.hdf5', by_name=False)
-    # get some random examples from the validation data
-    random_examples, idx = data.n_rand_examples(model_datas_val)
-    pred = autoencoder.predict(random_examples)
-
-    # find axis that corresponds to velocity
-    v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
-    print('velocity index:', v_index)
-    model_datas_pred = copy.deepcopy(model_datas_val)
-    model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
-    for i in idx:
-        pm_original = data.examples2pm(model_datas, i)
-        pm_pred = data.examples2pm(model_datas_pred, i)
-        pm_original.write(f'experiments/run_{run}/ex{i}original.mid')
-        pm_pred.write(f'experiments/run_{run}/ex{i}prediction_teacher_forced.mid')
-
 
     # add weights to sacred... Or not, they can exceed max size! 
     # exp_utils.capture_weights(_run)
@@ -278,3 +268,23 @@ def train_model(_run,
     plt.savefig(f'{path}model_training')
     # clear the output
     plt.clf()
+
+
+    ### Make some predictions ###
+    # load best weights
+    models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
+    # get some random examples from the validation data
+    random_examples, idx = data.n_rand_examples(model_datas_val)
+    pred = autoencoder.predict(random_examples)
+
+    # find axis that corresponds to velocity
+    v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
+    print('velocity index:', v_index)
+    model_datas_pred = copy.deepcopy(model_datas_val)
+    model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
+    os.mkdir(path + 'midi/')
+    for i in idx:
+        pm_original = data.examples2pm(model_datas, i)
+        pm_pred = data.examples2pm(model_datas_pred, i)
+        pm_original.write(path + 'midi/' + f'ex{i}original.mid')
+        pm_pred.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')

@@ -176,11 +176,12 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
 
     # extract data for each training example from the model datas
     for md in model_datas.values():
+        data = md.data[idx,...]
         # need to check data isn't a sparse matrix
-        if isinstance(md.data[0], csc_matrix):
-            random_examples[md.name + '_in'] = md.data[idx,...].toarray()
+        if isinstance(data, csc_matrix):
+            random_examples[md.name + '_in'] = data.toarray()
         else:
-            random_examples[md.name + '_in'] = md.data[idx,...]
+            random_examples[md.name + '_in'] = data
         random_examples[md.name + '_in'] = random_examples[md.name + '_in']
         # if it is sequential data, also add it as an ar input (just in case)
         if md.seq:
