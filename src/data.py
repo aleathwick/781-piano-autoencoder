@@ -178,15 +178,12 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
     for md in model_datas.values():
         data = md.data[idx,...]
         # need to check data isn't a sparse matrix
-        if isinstance(data, csc_matrix):
-            random_examples[md.name + '_in'] = data.toarray()
-        else:
-            random_examples[md.name + '_in'] = data
-        random_examples[md.name + '_in'] = random_examples[md.name + '_in']
+        if isinstance(data[0], csc_matrix):
+            data = np.array([d.toarray() for d in data])
+        random_examples[md.name + '_in'] = data
         # if it is sequential data, also add it as an ar input (just in case)
         if md.seq:
-            random_examples[md.name + '_ar'] = np.concatenate([np.zeros((len(idx),1, md.dim)), md.data[idx,...][:,:-1]], axis=-2)
-    
+            random_examples[md.name + '_ar'] = np.concatenate([np.zeros((len(idx),1, md.dim)), data[:,:-1]], axis=-2)
     return random_examples, idx
 
 ######## ########
@@ -228,4 +225,12 @@ def get_pickle_data(filename):
         return pickle.load(f)
 
 
+######## convenient ########
 
+def sizeof_fmt(num, suffix='B'):
+    """by Fred Cirera"""
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)

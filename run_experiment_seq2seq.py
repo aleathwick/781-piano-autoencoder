@@ -1,6 +1,7 @@
 from importlib import reload
 import numpy as np
 import os
+import copy
 # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import matplotlib.pyplot as plt
 from scipy.sparse import csc_matrix, csr_matrix
@@ -22,7 +23,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('pitch_stride_6')
+ex = Experiment('pred_test_delete')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -90,7 +91,7 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 1200
+    epochs = 1
     monitor = 'loss'
     loss_weights = [1, 3]
     # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
@@ -102,7 +103,7 @@ def train_config():
     metrics = ['accuracy', 'categorical_crossentropy']
 
     #other
-    continue_run = None
+    continue_run = 221
     log_tensorboard = False
 
 
@@ -280,7 +281,8 @@ def train_model(_run,
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred = copy.deepcopy(model_datas_val)
+    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+    model_datas = copy.deepcopy(model_datas_pred)
     model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
     os.mkdir(path + 'midi/')
     for i in idx:
