@@ -498,7 +498,7 @@ def create_hierarchical_decoder_graph(
                         stateful=False, # use True to make a prediction model
                         prediction_model=False,
                         batch_size=None,
-                        ar_inc_batch_shape=False, #sometimes needed to make shapes mesh, in TF 2.0.0
+                        ar_inc_batch_shape=True, #sometimes needed to make shapes mesh, in TF 2.0.0
                         **kwargs):
     """create a hierarchical decoder
 
@@ -625,7 +625,10 @@ def create_hierarchical_decoder_graph(
     outputs = [[] for i in range(len(output_fns))]
 
     # need teacher forced inputs (sequential outputs moved right by a sub step)
-    ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=None, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    if ar_inc_batch_shape:
+        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=batch_size, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
+    else:
+        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=None, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True]
     ar_inputs.sort(key=lambda x: x.name)
     # concatenate teacher forced
     ar_concat = layers.concatenate(ar_inputs, axis=-1)

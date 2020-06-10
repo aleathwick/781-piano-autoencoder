@@ -13,6 +13,7 @@ from collections import namedtuple
 import timeit
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow.keras.callbacks import LambdaCallback
 # import my modules
 import src.midi_utils as midi_utils
 import src.data as data
@@ -23,7 +24,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('pred_test_delete')
+ex = Experiment('autoencoder_test')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -50,13 +51,13 @@ def train_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 15
     vel_cutoff = 4
 
     ##### Model Config ####
     ### general network params
     hierarchical = True
-    variational = False
+    variational = True
     latent_size = 256
     hidden_state = 512
     dense_size = 512
@@ -66,13 +67,13 @@ def train_config():
     ### encoder params
     encoder_lstms = 2
     z_activation = None
-    # conv = False
-    pitch_stride = 6
-    conv = {'F_n': [32, 32, 48, 48, 48, 24], # number of filters
-            'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
-            'strides': [(1, pitch_stride), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
-            'batch_norm': True # apply batch norm after each conv operation (after activation)
-            }
+    conv = False
+    # pitch_stride = 6
+    # conv = {'F_n': [32, 32, 48, 48, 48, 24], # number of filters
+    #         'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
+    #         'strides': [(1, pitch_stride), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
+    #         'batch_norm': True # apply batch norm after each conv operation (after activation)
+    #         }
 
 
     ### sampling params... if applicable.
@@ -91,19 +92,22 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 1
+    epochs = 1000
     monitor = 'loss'
     loss_weights = [1, 3]
-    # musicvae used 48 for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
-    free_bits=0
     clipvalue = 1
-    # loss = losses.vae_custom_loss2
-    loss = 'categorical_crossentropy'
-    kl_weight = 1
+    loss = losses.vae_custom_loss
+    # loss = 'categorical_crossentropy'
     metrics = ['accuracy', 'categorical_crossentropy']
 
+    # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
+    # Variational specific parameters
+    beta_fn = 1 #lambda epoch: (epoch/10.0) * (epoch <= 10.0) * 5 + 1.0 * (epoch > 10.0) * 5
+    free_bits=0
+    kl_weight = 1
+    
     #other
-    continue_run = 221
+    continue_run = None
     log_tensorboard = False
 
 
@@ -149,9 +153,10 @@ def train_model(_run,
                 epochs,
                 monitor,
                 loss_weights,
-                free_bits,
                 clipvalue,
                 loss,
+                beta_fn,
+                free_bits,
                 kl_weight,
                 metrics,
 
@@ -202,9 +207,11 @@ def train_model(_run,
                                                     variational=variational,
                                                     conv=conv)
     if variational:
-        loss = loss(z, free_bits=free_bits, kl_weight=kl_weight)
+        loss, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
         z = layers.Lambda(sampling_fn)(z)
+        if not isinstance(beta_fn, (int, float)):
+            callbacks.append(beta_cb)
         
     
     if hierarchical:

@@ -2,6 +2,7 @@
 
 import os
 import tensorflow as tf
+import tensorflow.keras.backend as K
 
 def set_up_path(no):
     path = f'experiments/run_{no}/'
@@ -43,6 +44,7 @@ class KerasInfoUpdater(tf.keras.callbacks.Callback):
             self.run.info['logs'][k] = log_out
             # add to metrics (info is already stored, but makes for easy plotting in omniboard)
             self.run.log_scalar(k, float(v))
+
 
 
 def capture_weights(_run):
