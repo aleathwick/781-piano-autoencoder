@@ -51,7 +51,7 @@ def train_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = 15
+    nth_file = None
     vel_cutoff = 4
 
     ##### Model Config ####
@@ -92,7 +92,7 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.0001
-    epochs = 1000
+    epochs = 1200
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
@@ -102,7 +102,7 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    beta_fn = 1 #lambda epoch: (epoch/10.0) * (epoch <= 10.0) * 5 + 1.0 * (epoch > 10.0) * 5
+    beta_fn = losses.beta_fn2
     free_bits=0
     kl_weight = 1
     
