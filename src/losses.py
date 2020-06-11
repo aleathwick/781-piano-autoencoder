@@ -7,11 +7,6 @@ import src.midi_utils as midi_utils
 import tensorflow_probability as tfp
 ds = tfp.distributions
 
-def beta_fn1(epoch):
-    return (epoch/10.0) * (epoch <= 10.0) * 5 + 1.0 * (epoch > 10.0) * 5
-
-def beta_fn2(epoch):
-    return 1 - 1 * 0.999 ** epoch
 
 def note_categorical_crossentropy(y_true, y_pred):
     """calculates cc only for entries where a note exists

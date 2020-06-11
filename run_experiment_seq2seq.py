@@ -14,6 +14,7 @@ import timeit
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.callbacks import LambdaCallback
+from tensorflow.keras.callbacks import LearningRateScheduler
 # import my modules
 import src.midi_utils as midi_utils
 import src.data as data
@@ -91,8 +92,10 @@ def train_config():
 
     ##### Training Config ####
     batch_size = 64
-    lr = 0.0001
-    epochs = 1200
+    lr = 0.001
+    lr_decay_rate = 0.01**(1/1000)
+    min_lr = 0.00001
+    epochs = 2000
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
@@ -102,7 +105,7 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    beta_fn = losses.beta_fn2
+    beta_fn = exp_utils.beta_fn2()
     free_bits=0
     kl_weight = 1
     
@@ -150,6 +153,8 @@ def train_model(_run,
                 # training params
                 batch_size,
                 lr,
+                lr_decay_rate,
+                min_lr,
                 epochs,
                 monitor,
                 loss_weights,
@@ -192,6 +197,8 @@ def train_model(_run,
     # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
     # log keras info to sacred
     callbacks.append(exp_utils.KerasInfoUpdater(_run))
+    # learning rate scheduler
+    callbacks.append(LearningRateScheduler(exp_utils.decay_lr(min_lr, lr_decay_rate, _run)))
     # log to tensorboard
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
@@ -283,7 +290,7 @@ def train_model(_run,
     models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val)
-    pred = autoencoder.predict(random_examples)
+    pred = autoencoder.predict(random_examples, n=batch_size)
 
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]

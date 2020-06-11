@@ -10,6 +10,23 @@ def set_up_path(no):
     return no, path
 
 
+def beta_fn1(warmup=10.0, target=1):
+    """returns function for warming up beta during training"""
+    return lambda epoch: min((epoch/warmup) * target, target)
+
+def beta_fn2(beta_decay_rate=0.999, target=1):
+    """returns function for annealing beta during training"""
+    return lambda epoch: target - target * beta_decay_rate ** epoch
+
+def decay_lr(min_lr, lr_decay_rate, run):
+    """returns function for decaying learning rate exponentially"""
+    def decay(epoch, lr):
+        new_lr = max(min_lr, lr * lr_decay_rate)
+        run.log_scalar("lr", new_lr)
+        return new_lr
+    return decay
+
+
 # see https://github.com/pinae/Sacred-MNIST/blob/master/train_convnet.py for inspiration
 class SacredLogMetrics(tf.keras.callbacks.Callback):
     """keras callback for logging metrics to sacred run, requires sacred _run to be passed in"""
