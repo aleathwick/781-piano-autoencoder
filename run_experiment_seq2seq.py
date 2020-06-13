@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('autoencoder_test')
+ex = Experiment('with_lr_decay')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -93,9 +93,9 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.001
-    lr_decay_rate = 0.01**(1/1000)
-    min_lr = 0.00001
-    epochs = 2000
+    lr_decay_rate = 0.01**(1/1500)
+    min_lr = 0.00005
+    epochs = 1500
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
@@ -105,7 +105,8 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    beta_fn = exp_utils.beta_fn2()
+    max_beta = 0.5
+    beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
     
@@ -160,7 +161,8 @@ def train_model(_run,
                 loss_weights,
                 clipvalue,
                 loss,
-                beta_fn,
+                max_beta,
+                beta_rate,
                 free_bits,
                 kl_weight,
                 metrics,
@@ -214,6 +216,7 @@ def train_model(_run,
                                                     variational=variational,
                                                     conv=conv)
     if variational:
+        beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
         loss, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
         z = layers.Lambda(sampling_fn)(z)
@@ -289,8 +292,8 @@ def train_model(_run,
     # load best weights
     models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
-    random_examples, idx = data.n_rand_examples(model_datas_val)
-    pred = autoencoder.predict(random_examples, n=batch_size)
+    random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
+    pred = autoencoder.predict(random_examples)
 
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
