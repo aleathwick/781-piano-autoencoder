@@ -1,4 +1,5 @@
 import pretty_midi
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import os
@@ -56,12 +57,10 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     examples = {key: [] for key in ['H', 'O', 'V', 'R', 'S', 'tempo', 'key', 'V_mean']}
     example_length = 64
     piano_range = 88
-    files = [file for file in os.scandir(folder)]
+    files = [file for file in os.scandir(folder) if not file.is_dir()]
     if nth_file != None:
         files = [f for i, f in enumerate(files) if i % nth_file == 0]
-    for i, file in enumerate(files):
-        if i % 10 == 0:
-            print(f'processing file {i} of {len(files)}')
+    for file in tqdm(files):
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
