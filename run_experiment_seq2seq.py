@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('non variational with lr decay')
+ex = Experiment('new_data!!!')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -305,12 +305,12 @@ def train_model(_run,
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats))
     model_datas = copy.deepcopy(model_datas_pred)
     model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
     os.mkdir(path + 'midi/')
     for i in idx:
-        pm_original = data.examples2pm(model_datas, i)
-        pm_pred = data.examples2pm(model_datas_pred, i)
+        pm_original = data.examples2pm(model_datas, i, sub_beats=sub_beats)
+        pm_pred = data.examples2pm(model_datas_pred, i, sub_beats=sub_beats)
         pm_original.write(path + 'midi/' + f'ex{i}original.mid')
         pm_pred.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')
