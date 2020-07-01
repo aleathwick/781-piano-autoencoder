@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('with_lr_decay')
+ex = Experiment('non variational with lr decay')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -54,11 +54,12 @@ def train_config():
     st = 0
     nth_file = None
     vel_cutoff = 4
+    data_folder_prefix = '_8'
 
     ##### Model Config ####
     ### general network params
     hierarchical = True
-    variational = True
+    variational = False
     latent_size = 256
     hidden_state = 512
     dense_size = 512
@@ -93,19 +94,19 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.001
-    lr_decay_rate = 0.01**(1/1500)
+    lr_decay_rate = 0.05**(1/1500)
     min_lr = 0.00005
     epochs = 1500
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
-    loss = losses.vae_custom_loss
-    # loss = 'categorical_crossentropy'
+    # loss = losses.vae_custom_loss
+    loss = 'categorical_crossentropy'
     metrics = ['accuracy', 'categorical_crossentropy']
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.5
+    max_beta = 0.2
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -126,6 +127,7 @@ def train_model(_run,
                 st,
                 nth_file,
                 vel_cutoff,
+                data_folder_prefix,
                 
                 # network params
                 hierarchical,
@@ -181,9 +183,9 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file, vel_cutoff=vel_cutoff)
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file, vel_cutoff=vel_cutoff)
     _run.info['seconds_train_data'] = seconds
-    model_datas_val, seconds = data.folder2examples('training_data/midi_val', sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
@@ -293,8 +295,11 @@ def train_model(_run,
     models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
+    _run.info['logs'] = _run.info.get('logs', {})
+    _run.info['logs']['pred examples number'] = len(idx)
+    for k, v in random_examples.items():
+        _run.info['logs']['pred_' + k + 'length'] = len(v)
     pred = autoencoder.predict(random_examples)
-
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
