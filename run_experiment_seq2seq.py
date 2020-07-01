@@ -48,7 +48,8 @@ def train_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 64
+    seq_length = 32
+    sub_beats = 2
     use_base_key = True
     transpose = False
     st = 0
@@ -122,6 +123,7 @@ def train_model(_run,
                 model_inputs,
                 model_outputs,
                 seq_length,
+                sub_beats,
                 use_base_key,
                 transpose,
                 st,
@@ -183,9 +185,9 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4), nth_file=nth_file, vel_cutoff=vel_cutoff)
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff)
     _run.info['seconds_train_data'] = seconds
-    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / 4))
+    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats))
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
