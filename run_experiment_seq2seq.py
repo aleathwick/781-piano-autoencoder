@@ -50,7 +50,7 @@ def train_config():
     model_outputs = ['H', 'V']
     seq_length = 32
     sub_beats = 2
-    use_base_key = True
+    use_base_key = False
     transpose = False
     st = 0
     nth_file = None
@@ -185,9 +185,9 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff)
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
     _run.info['seconds_train_data'] = seconds
-    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats))
+    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
@@ -305,7 +305,7 @@ def train_model(_run,
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats))
+    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     model_datas = copy.deepcopy(model_datas_pred)
     model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
     os.mkdir(path + 'midi/')
