@@ -176,7 +176,7 @@ def train_model(_run,
                 log_tensorboard):
     
     no, path = exp_utils.set_up_path(_run._id)
-    
+
     # save text file with the parameters used
     with open(f'{path}description.txt', 'w') as f:
         for key, value in locals().items():
@@ -185,27 +185,27 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
-    _run.info['seconds_train_data'] = seconds
+    # model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
+    # _run.info['seconds_train_data'] = seconds
     model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
-    callbacks = []
-    # train loss model checkpoint
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
-                                monitor='loss', verbose=1, save_best_only=True, save_weights_only=True))
-    # val loss model checkpoint
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
-                                monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
-    # early stopping, if needed
-    # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
-    # log keras info to sacred
-    callbacks.append(exp_utils.KerasInfoUpdater(_run))
-    # learning rate scheduler
-    callbacks.append(LearningRateScheduler(exp_utils.decay_lr(min_lr, lr_decay_rate, _run)))
-    # log to tensorboard
+    # callbacks = []
+    # # train loss model checkpoint
+    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
+    #                             monitor='loss', verbose=1, save_best_only=True, save_weights_only=True))
+    # # val loss model checkpoint
+    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
+    #                             monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
+    # # early stopping, if needed
+    # # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
+    # # log keras info to sacred
+    # callbacks.append(exp_utils.KerasInfoUpdater(_run))
+    # # learning rate scheduler
+    # callbacks.append(LearningRateScheduler(exp_utils.decay_lr(min_lr, lr_decay_rate, _run)))
+    # # log to tensorboard
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
@@ -264,36 +264,38 @@ def train_model(_run,
     # save a plot of the model
     # tf.keras.utils.plot_model(seq_model, to_file=f'{path}model_plot.png')
 
-    dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
-                                        [model_in.name for model_in in model_input_reqs],
-                                        [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
+    # dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
+    #                                     [model_in.name for model_in in model_input_reqs],
+    #                                     [model_out.name for model_out in model_output_reqs],
+    #                                     t_force=True, batch_size = batch_size, seq_length=seq_length)
 
-    dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
-                                        [model_in.name for model_in in model_input_reqs],
-                                        [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
+    # dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
+    #                                     [model_in.name for model_in in model_input_reqs],
+    #                                     [model_out.name for model_out in model_output_reqs],
+    #                                     t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
     autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
-    history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
+    # history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
     # save the model history
-    with open(f'{path}history-{epochs}epochs.json', 'w') as f:
-        json.dump(str(history.history), f)
+    # with open(f'{path}history-{epochs}epochs.json', 'w') as f:
+    #     json.dump(str(history.history), f)
 
     # add weights to sacred... Or not, they can exceed max size! 
     # exp_utils.capture_weights(_run)
 
     # save a graph of the training vs validation progress
-    models.plt_metric(history.history)
-    plt.savefig(f'{path}model_training')
+    # models.plt_metric(history.history)
+    # plt.savefig(f'{path}model_training')
     # clear the output
-    plt.clf()
+    # plt.clf()
 
 
     ### Make some predictions ###
     # load best weights
+    no = 266
+    path = f'experiments/run_{no}/'
     models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
@@ -305,7 +307,7 @@ def train_model(_run,
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred, _ = data.folder2examples('training_data/midi_val', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
+    model_datas_pred, _ = data.folder2examples('training_data/midi_val_8', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     model_datas = copy.deepcopy(model_datas_pred)
     model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
     os.mkdir(path + 'midi/')
