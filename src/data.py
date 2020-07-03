@@ -147,7 +147,7 @@ def examples2pm(md, i=None, sub_beats=4):
         if isinstance(data, csc_matrix):
             md[name] = data.toarray()
     md = {name: data for name, data in md.items()}
-    pm = HOV2pm(md)
+    pm = HOV2pm(md, sub_beats=sub_beats)
     return pm
 
 
