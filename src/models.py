@@ -320,7 +320,7 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
     return outputs
 
 
-def create_LSTMdecoder_graph_ar(latent_vector,
+def create_LSTMdecoder_graph_ar(z,
                             model_output_reqs,
                             seq_length=seq_length,
                             ar_inputs=None,
@@ -354,7 +354,7 @@ def create_LSTMdecoder_graph_ar(latent_vector,
         assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
 
     # initial dense layer to transform z
-    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(latent_vector)
+    x = layers.Dense(dense_size, activation='relu', name='initial_dense')(z)
     # if not stateful:
     x = layers.RepeatVector(seq_length)(x)
     
