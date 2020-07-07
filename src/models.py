@@ -320,9 +320,20 @@ def create_LSTMdecoder_graph(latent_vector, model_output_reqs, seq_length=seq_le
     return outputs
 
 
-def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq_length, ar_inputs=None,
-                    lstm_layers = 2, hidden_state = 256, dense_size = 256, n_notes=88, chroma=False,
-                    recurrent_dropout = 0.0, stateful=False, **kwargs):
+def create_LSTMdecoder_graph_ar(latent_vector,
+                            model_output_reqs,
+                            seq_length=seq_length,
+                            ar_inputs=None,
+                            lstm_layers = 2,
+                            hidden_state = 256,
+                            dense_size = 256,
+                            n_notes=88,
+                            chroma=False,
+                            recurrent_dropout = 0.0,
+                            stateful=False,
+                            initial_state_from_dense=True,
+                            initial_state_activation=None,
+                            **kwargs):
     """creates an autoregressive LSTM based decoder
 
     
@@ -355,14 +366,26 @@ def create_LSTMdecoder_graph_ar(latent_vector, model_output_reqs, seq_length=seq
         # if this executes, then the model is being used for prediction, and batch size is 1
         ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
     
-    # pass input through non final lstm layers, returning sequences each time
-    for i in range(lstm_layers - 1):
-        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}')(x)
-    
-    # concat teacher forced inputs with x
-    # pass through final lstm layer
-    x = layers.concatenate(ar_inputs + [x], axis=-1)
-    x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x)
+
+    if initial_state_from_dense:
+        for i in range(lstm_layers - 1):
+            h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_{i}')(z)
+            c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_{i}')(z)
+            x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}')(x, initial_state=[h0, c0])
+        h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_final')(z)
+        c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_final')(z)
+        x = layers.concatenate(ar_inputs + [x], axis=-1)
+        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x, initial_state=[h0, c0])
+
+    else:
+        # pass input through non final lstm layers, returning sequences each time
+        for i in range(lstm_layers - 1):
+            x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'dec_lstm_{i}')(x)
+        
+        # concat teacher forced inputs with x
+        # pass through final lstm layer
+        x = layers.concatenate(ar_inputs + [x], axis=-1)
+        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x)
 
     # attempt to rebuild input
     outputs = []
@@ -498,7 +521,7 @@ def create_hierarchical_decoder_graph(
                         stateful=False, # use True to make a prediction model
                         prediction_model=False,
                         batch_size=None,
-                        ar_inc_batch_shape=True, #sometimes needed to make shapes mesh, in TF 2.0.0
+                        ar_inc_batch_shape=False, #sometimes needed to make shapes mesh, in TF 2.0.0
                         **kwargs):
     """create a hierarchical decoder
 
