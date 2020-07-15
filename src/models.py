@@ -333,6 +333,8 @@ def create_LSTMdecoder_graph_ar(z,
                             stateful=False,
                             initial_state_from_dense=True,
                             initial_state_activation=None,
+                            batch_size=None,
+                            ar_inc_batch_shape=False,
                             **kwargs):
     """creates an autoregressive LSTM based decoder
 
@@ -361,7 +363,10 @@ def create_LSTMdecoder_graph_ar(z,
     # get teacher forced inputs
     # the model will only be stateful if it is being used for prediction
     if not stateful:
-        ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+        if ar_inc_batch_shape:
+            ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=batch_size, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+        else:
+            ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
     else:
         # if this executes, then the model is being used for prediction, and batch size is 1
         ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]

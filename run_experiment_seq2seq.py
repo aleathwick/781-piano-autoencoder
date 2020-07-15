@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('new_data!!!')
+ex = Experiment('like 280 with varitional component')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -50,7 +50,7 @@ def train_config():
     model_outputs = ['H', 'V']
     seq_length = 32
     sub_beats = 2
-    use_base_key = False
+    use_base_key = True
     transpose = False
     st = 0
     nth_file = None
@@ -59,11 +59,11 @@ def train_config():
 
     ##### Model Config ####
     ### general network params
-    hierarchical = True
-    variational = False
-    latent_size = 256
-    hidden_state = 512
-    dense_size = 512
+    hierarchical = False
+    variational = True
+    latent_size = 512
+    hidden_state = 1024
+    dense_size = 1024
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -95,19 +95,19 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.001
-    lr_decay_rate = 0.05**(1/1500)
+    lr_decay_rate = 0.2**(1/1500)
     min_lr = 0.00005
     epochs = 1500
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
-    # loss = losses.vae_custom_loss
-    loss = 'categorical_crossentropy'
+    loss = losses.vae_custom_loss
+    # loss = 'categorical_crossentropy'
     metrics = ['accuracy', 'categorical_crossentropy']
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.2
+    max_beta = 0.05
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -115,6 +115,7 @@ def train_config():
     #other
     continue_run = None
     log_tensorboard = False
+    ar_inc_batch_shape = True # sometimes needed to make training work...
 
 
 @ex.automain
@@ -173,10 +174,11 @@ def train_model(_run,
 
                 #other
                 continue_run,
-                log_tensorboard):
+                log_tensorboard,
+                ar_inc_batch_shape):
     
     no, path = exp_utils.set_up_path(_run._id)
-
+    
     # save text file with the parameters used
     with open(f'{path}description.txt', 'w') as f:
         for key, value in locals().items():
@@ -185,27 +187,27 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    # model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
-    # _run.info['seconds_train_data'] = seconds
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
+    _run.info['seconds_train_data'] = seconds
     model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
 
-    # callbacks = []
-    # # train loss model checkpoint
-    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
-    #                             monitor='loss', verbose=1, save_best_only=True, save_weights_only=True))
-    # # val loss model checkpoint
-    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
-    #                             monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
-    # # early stopping, if needed
-    # # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
-    # # log keras info to sacred
-    # callbacks.append(exp_utils.KerasInfoUpdater(_run))
-    # # learning rate scheduler
-    # callbacks.append(LearningRateScheduler(exp_utils.decay_lr(min_lr, lr_decay_rate, _run)))
-    # # log to tensorboard
+    callbacks = []
+    # train loss model checkpoint
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_train_weights.hdf5',
+                                monitor='loss', verbose=1, save_best_only=True, save_weights_only=True))
+    # val loss model checkpoint
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
+                                monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
+    # early stopping, if needed
+    # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
+    # log keras info to sacred
+    callbacks.append(exp_utils.KerasInfoUpdater(_run))
+    # learning rate scheduler
+    callbacks.append(LearningRateScheduler(exp_utils.decay_lr(min_lr, lr_decay_rate, _run)))
+    # log to tensorboard
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
@@ -244,7 +246,8 @@ def train_model(_run,
                                                                 initial_state_from_dense=initial_state_from_dense,
                                                                 initial_state_activation=initial_state_activation,
                                                                 recurrent_dropout=recurrent_dropout,
-                                                                batch_size=batch_size)
+                                                                batch_size=batch_size,
+                                                                ar_inc_batch_shape=ar_inc_batch_shape)
     else:
         pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z,
                                                             model_output_reqs,
@@ -252,7 +255,11 @@ def train_model(_run,
                                                             hidden_state=hidden_state,
                                                             dense_size=dense_size,
                                                             ar_inputs=ar_inputs,
-                                                            recurrent_dropout=recurrent_dropout)
+                                                            recurrent_dropout=recurrent_dropout,
+                                                            initial_state_from_dense=initial_state_from_dense,
+                                                            initial_state_activation=initial_state_activation,
+                                                            batch_size=batch_size,
+                                                            ar_inc_batch_shape=ar_inc_batch_shape)
     autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
@@ -264,38 +271,36 @@ def train_model(_run,
     # save a plot of the model
     # tf.keras.utils.plot_model(seq_model, to_file=f'{path}model_plot.png')
 
-    # dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
-    #                                     [model_in.name for model_in in model_input_reqs],
-    #                                     [model_out.name for model_out in model_output_reqs],
-    #                                     t_force=True, batch_size = batch_size, seq_length=seq_length)
+    dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
+                                        [model_in.name for model_in in model_input_reqs],
+                                        [model_out.name for model_out in model_output_reqs],
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
 
-    # dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
-    #                                     [model_in.name for model_in in model_input_reqs],
-    #                                     [model_out.name for model_out in model_output_reqs],
-    #                                     t_force=True, batch_size = batch_size, seq_length=seq_length)
+    dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
+                                        [model_in.name for model_in in model_input_reqs],
+                                        [model_out.name for model_out in model_output_reqs],
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
     autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
-    # history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
+    history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
     # save the model history
-    # with open(f'{path}history-{epochs}epochs.json', 'w') as f:
-    #     json.dump(str(history.history), f)
+    with open(f'{path}history-{epochs}epochs.json', 'w') as f:
+        json.dump(str(history.history), f)
 
     # add weights to sacred... Or not, they can exceed max size! 
     # exp_utils.capture_weights(_run)
 
     # save a graph of the training vs validation progress
-    # models.plt_metric(history.history)
-    # plt.savefig(f'{path}model_training')
+    models.plt_metric(history.history)
+    plt.savefig(f'{path}model_training')
     # clear the output
-    # plt.clf()
+    plt.clf()
 
 
     ### Make some predictions ###
     # load best weights
-    no = 266
-    path = f'experiments/run_{no}/'
     models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
@@ -307,7 +312,7 @@ def train_model(_run,
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred, _ = data.folder2examples('training_data/midi_val_8', sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
+    model_datas_pred, _ = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
     model_datas = copy.deepcopy(model_datas_pred)
     model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
     os.mkdir(path + 'midi/')
