@@ -61,12 +61,14 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     if nth_file != None:
         files = [f for i, f in enumerate(files) if i % nth_file == 0]
     for file in tqdm(files):
+        print(file)
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
         file_examples = midi_utils.pm2example(pm, key, sparse=sparse, beats_per_ex=beats_per_ex, sub_beats=sub_beats, use_base_key=use_base_key, vel_cutoff=vel_cutoff)
-        for key, data in file_examples.items():
-            examples[key].extend(data)
+        if file_examples != None:
+            for key, data in file_examples.items():
+                examples[key].extend(data)
 
     # check out how much training data there is
     mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))

@@ -263,6 +263,11 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
 
     # Get H, O, V for examples in a midifile
     n_examples = len(pm.get_beats()) // beats_per_ex
+    
+    # if midi file is shorter than minimum example length, return 
+    if n_examples == 0:
+        return None
+    
     sub_beats_per_ex = sub_beats * beats_per_ex
     
     # initialize np array storage
@@ -283,6 +288,9 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     current_sub_beat = 0
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
     sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
+
+
+
 
     # sort pedal
     S = np.zeros((n_examples * sub_beats_per_ex, 2))
