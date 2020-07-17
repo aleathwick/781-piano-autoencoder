@@ -61,7 +61,6 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     if nth_file != None:
         files = [f for i, f in enumerate(files) if i % nth_file == 0]
     for file in tqdm(files):
-        print(file)
         pm = pretty_midi.PrettyMIDI(file.path)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
