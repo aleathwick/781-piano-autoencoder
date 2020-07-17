@@ -18,11 +18,12 @@ def beta_fn2(beta_rate=0.999, max_beta=1):
     """returns function for annealing beta during training"""
     return lambda epoch: max_beta - max_beta * beta_rate ** epoch
 
-def decay_lr(min_lr, lr_decay_rate, run):
+def decay_lr(min_lr, lr_decay_rate, run=None):
     """returns function for decaying learning rate exponentially"""
     def decay(epoch, lr):
         new_lr = max(min_lr, lr * lr_decay_rate)
-        run.log_scalar("lr", new_lr)
+        if run != None:
+            run.log_scalar("lr", new_lr)
         return new_lr
     return decay
 
