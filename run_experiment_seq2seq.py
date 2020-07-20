@@ -211,7 +211,7 @@ def train_model(_run,
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
-
+    # if variational, z will be a list of [[means], [stds]]
     z, model_inputs_tf = models.create_LSTMencoder_graph(model_input_reqs,
                                                     hidden_state = hidden_state,
                                                     dense_size=dense_size,
@@ -225,13 +225,16 @@ def train_model(_run,
         beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
         loss, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
-        z = layers.Lambda(sampling_fn)(z)
+        # z_input is the tensor that will be passed into the decoder
+        z_input = layers.Lambda(sampling_fn)(z)
         if not isinstance(beta_fn, (int, float)):
             callbacks.append(beta_cb)
-        
+    else:
+
+        z_input = z
     
     if hierarchical:
-        pred, ar_inputs = models.create_hierarchical_decoder_graph(z,
+        pred, ar_inputs_tf = models.create_hierarchical_decoder_graph(z_input,
                                                                 model_output_reqs,
                                                                 seq_length=seq_length,
                                                                 ar_inputs=ar_inputs, 
@@ -249,7 +252,7 @@ def train_model(_run,
                                                                 batch_size=batch_size,
                                                                 ar_inc_batch_shape=ar_inc_batch_shape)
     else:
-        pred, ar_inputs = models.create_LSTMdecoder_graph_ar(z,
+        pred, ar_inputs_tf = models.create_LSTMdecoder_graph_ar(z_input,
                                                             model_output_reqs,
                                                             seq_length=seq_length,
                                                             hidden_state=hidden_state,
@@ -260,7 +263,7 @@ def train_model(_run,
                                                             initial_state_activation=initial_state_activation,
                                                             batch_size=batch_size,
                                                             ar_inc_batch_shape=ar_inc_batch_shape)
-    autoencoder = tf.keras.Model(inputs=model_inputs_tf + ar_inputs, outputs=pred, name=f'autoencoder')
+    autoencoder = tf.keras.Model(inputs=model_inputs_tf + ar_inputs_tf, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
     if continue_run != None:
