@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('like 280 with varitional component')
+ex = Experiment('like 282 with 64 seq length ')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -48,7 +48,7 @@ def train_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 32
+    seq_length = 64
     sub_beats = 2
     use_base_key = True
     transpose = False
@@ -212,7 +212,7 @@ def train_model(_run,
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
 
-    z, model_inputs = models.create_LSTMencoder_graph(model_input_reqs,
+    z, model_inputs_tf = models.create_LSTMencoder_graph(model_input_reqs,
                                                     hidden_state = hidden_state,
                                                     dense_size=dense_size,
                                                     latent_size=latent_size,
@@ -260,7 +260,7 @@ def train_model(_run,
                                                             initial_state_activation=initial_state_activation,
                                                             batch_size=batch_size,
                                                             ar_inc_batch_shape=ar_inc_batch_shape)
-    autoencoder = tf.keras.Model(inputs=model_inputs + ar_inputs, outputs=pred, name=f'autoencoder')
+    autoencoder = tf.keras.Model(inputs=model_inputs_tf + ar_inputs, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
     if continue_run != None:
