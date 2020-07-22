@@ -25,12 +25,12 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('like 282 with 64 seq length ')
+ex = Experiment('test new prediction for variational')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
 
-# ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
+ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
 
 from sacred.utils import apply_backspaces_and_linefeeds
 ex.captured_out_filter = apply_backspaces_and_linefeeds
@@ -39,7 +39,9 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 # seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
 # last answer might fix it: https://stackoverflow.com/questions/57704771/inputs-to-eager-execution-function-cannot-be-keras-symbolic-tensors
 # the trick is for the step that defines the loss fnc to return a symbolic tensor, rather than returning another function which uses a symbolic tensor
+
 tf.compat.v1.disable_eager_execution()
+
 # alternatively, could do something like this?
 # https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
 
@@ -53,7 +55,7 @@ def train_config():
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 10
     vel_cutoff = 4
     data_folder_prefix = '_8'
 
@@ -61,9 +63,9 @@ def train_config():
     ### general network params
     hierarchical = False
     variational = True
-    latent_size = 512
-    hidden_state = 1024
-    dense_size = 1024
+    latent_size = 10
+    hidden_state = 100
+    dense_size = 100
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -97,7 +99,7 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.2**(1/1500)
     min_lr = 0.00005
-    epochs = 1500
+    epochs = 2
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
@@ -115,7 +117,8 @@ def train_config():
     #other
     continue_run = None
     log_tensorboard = False
-    ar_inc_batch_shape = True # sometimes needed to make training work...
+    ar_inc_batch_shape = False # sometimes needed to make training work...
+     
 
 
 @ex.automain
@@ -211,58 +214,54 @@ def train_model(_run,
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
+    # model kwargs - for the encoder/decoder builder functions, make a dictionary to pass as kwargs
+    model_kwargs = {# general model parameters
+                    'recurrent_dropout':recurrent_dropout,
+                    'hidden_state':hidden_state,
+                    'dense_size':dense_size,
+                    'seq_length':seq_length,
+                    
+                    # encoder parameters
+                    'latent_size':latent_size,
+                    'z_activation':z_activation,
+                    'variational':variational,
+                    'conv':conv,
+                    
+                    # decoder parameters
+                    'ar_inputs':ar_inputs, 
+                    'decoder_lstms':decoder_lstms,
+                    'batch_size':batch_size, # not used in encoder, currently...
+                    'initial_state_from_dense':initial_state_from_dense,
+                    'initial_state_activation':initial_state_activation,
+                    'ar_inc_batch_shape':ar_inc_batch_shape,
+                    'conv':conv,
+                    # conductor configuration (only used if hierarchical)
+                    'conductor_state_size':conductor_state_size, # none => same as decoder
+                    'conductors':conductors,
+                    'conductor_steps':conductor_steps,
+                    }
     # if variational, z will be a list of [[means], [stds]]
-    z, model_inputs_tf = models.create_LSTMencoder_graph(model_input_reqs,
-                                                    hidden_state = hidden_state,
-                                                    dense_size=dense_size,
-                                                    latent_size=latent_size,
-                                                    seq_length=seq_length,
-                                                    recurrent_dropout=recurrent_dropout,
-                                                    z_activation=z_activation,
-                                                    variational=variational,
-                                                    conv=conv)
+    build_encoder_graph = models.create_LSTMencoder_graph
+    z, model_inputs_tf = build_encoder_graph(model_input_reqs, **model_kwargs)
+
     if variational:
         beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
-        loss, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
+        loss_for_train, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
         # z_input is the tensor that will be passed into the decoder
         z_input = layers.Lambda(sampling_fn)(z)
         if not isinstance(beta_fn, (int, float)):
             callbacks.append(beta_cb)
     else:
-
+        loss_for_train = loss
         z_input = z
     
     if hierarchical:
-        pred, ar_inputs_tf = models.create_hierarchical_decoder_graph(z_input,
-                                                                model_output_reqs,
-                                                                seq_length=seq_length,
-                                                                ar_inputs=ar_inputs, 
-                                                                # dense and lstm sizes
-                                                                dense_size=dense_size,
-                                                                hidden_state=hidden_state,
-                                                                decoder_lstms=decoder_lstms,
-                                                                conductor_state_size=conductor_state_size, # none => same as decoder
-                                                                # conductor configuration
-                                                                conductors=conductors,
-                                                                conductor_steps=conductor_steps,
-                                                                initial_state_from_dense=initial_state_from_dense,
-                                                                initial_state_activation=initial_state_activation,
-                                                                recurrent_dropout=recurrent_dropout,
-                                                                batch_size=batch_size,
-                                                                ar_inc_batch_shape=ar_inc_batch_shape)
+        build_decoder_graph = models.create_hierarchical_decoder_graph
     else:
-        pred, ar_inputs_tf = models.create_LSTMdecoder_graph_ar(z_input,
-                                                            model_output_reqs,
-                                                            seq_length=seq_length,
-                                                            hidden_state=hidden_state,
-                                                            dense_size=dense_size,
-                                                            ar_inputs=ar_inputs,
-                                                            recurrent_dropout=recurrent_dropout,
-                                                            initial_state_from_dense=initial_state_from_dense,
-                                                            initial_state_activation=initial_state_activation,
-                                                            batch_size=batch_size,
-                                                            ar_inc_batch_shape=ar_inc_batch_shape)
+        build_decoder_graph =models.create_LSTMdecoder_graph_ar
+
+    pred, ar_inputs_tf = build_decoder_graph(z_input, model_output_reqs, **model_kwargs)
     autoencoder = tf.keras.Model(inputs=model_inputs_tf + ar_inputs_tf, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
@@ -285,7 +284,7 @@ def train_model(_run,
                                         t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
-    autoencoder.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
+    autoencoder.compile(optimizer=opt, loss=loss_for_train, metrics=metrics, loss_weights=loss_weights)
     history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
     # save the model history
@@ -304,14 +303,38 @@ def train_model(_run,
 
     ### Make some predictions ###
     # load best weights
-    models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
+    # models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
-    _run.info['logs'] = _run.info.get('logs', {})
-    _run.info['logs']['pred examples number'] = len(idx)
-    for k, v in random_examples.items():
-        _run.info['logs']['pred_' + k + 'length'] = len(v)
-    pred = autoencoder.predict(random_examples)
+
+    # currently, prediction is broken for my variational models
+    # if variational, then for now need to circumvent autoencoder.predict()
+    if variational:
+        #grab encoder layers from above, make a model
+        encoder = tf.keras.Model(inputs=model_inputs_tf, outputs=z, name=f'encoder')
+        
+        # create a new decoder
+        z_in = tf.keras.Input(shape=(latent_size,), name='z')
+        pred, ar_inputs_tf = build_decoder_graph(z_in, model_output_reqs, **model_kwargs)
+        decoder = tf.keras.Model(inputs=[z_in] + ar_inputs_tf, outputs=pred, name=f'decoder')
+
+        # load weights for decoder
+        # models.load_weights_safe(decoder, path + f'{no}_best_train_weights.hdf5', by_name=True)
+
+        in_dict = dg_val.__getitem__(0)[0]
+
+        ### predict
+        # get paramerterization of latent space
+        zp_param = encoder.predict(in_dict)
+        # generate random values
+        zp_latent = sampling_fn(zp_param)
+        with tf.compat.v1.Session():
+            in_dict['z'] = zp_latent.eval()
+        pred = decoder.predict(in_dict)
+
+    else:
+        pred = autoencoder.predict(random_examples)
+    
     # find axis that corresponds to velocity
     v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
     print('velocity index:', v_index)
