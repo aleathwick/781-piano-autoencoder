@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('test new prediction for variational')
+ex = Experiment('like 282, beta 0.05 -> 0.08')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -50,12 +50,12 @@ def train_config():
     # data params
     model_inputs = ['H', 'V_mean']
     model_outputs = ['H', 'V']
-    seq_length = 64
+    seq_length = 32
     sub_beats = 2
     use_base_key = True
     transpose = False
     st = 0
-    nth_file = 10
+    nth_file = None
     vel_cutoff = 4
     data_folder_prefix = '_8'
 
@@ -63,9 +63,9 @@ def train_config():
     ### general network params
     hierarchical = False
     variational = True
-    latent_size = 10
-    hidden_state = 100
-    dense_size = 100
+    latent_size = 512
+    hidden_state = 1024
+    dense_size = 1024
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -109,7 +109,7 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.05
+    max_beta = 0.08
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -321,16 +321,16 @@ def train_model(_run,
         # load weights for decoder
         # models.load_weights_safe(decoder, path + f'{no}_best_train_weights.hdf5', by_name=True)
 
-        in_dict = dg_val.__getitem__(0)[0]
+        # in_dict = dg_val.__getitem__(0)[0]
 
         ### predict
         # get paramerterization of latent space
-        zp_param = encoder.predict(in_dict)
+        zp_param = encoder.predict(random_examples)
         # generate random values
         zp_latent = sampling_fn(zp_param)
         with tf.compat.v1.Session():
-            in_dict['z'] = zp_latent.eval()
-        pred = decoder.predict(in_dict)
+            random_examples['z'] = zp_latent.eval()
+        pred = decoder.predict(random_examples)
 
     else:
         pred = autoencoder.predict(random_examples)
