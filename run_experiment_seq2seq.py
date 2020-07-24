@@ -25,7 +25,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment('like 282, beta 0.05 -> 0.08')
+ex = Experiment(f'32seq-max_beta={max_beta}')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -99,7 +99,7 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.2**(1/1500)
     min_lr = 0.00005
-    epochs = 2
+    epochs = 1500
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
@@ -109,7 +109,7 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.08
+    max_beta = 0.03
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -319,7 +319,7 @@ def train_model(_run,
         decoder = tf.keras.Model(inputs=[z_in] + ar_inputs_tf, outputs=pred, name=f'decoder')
 
         # load weights for decoder
-        # models.load_weights_safe(decoder, path + f'{no}_best_train_weights.hdf5', by_name=True)
+        models.load_weights_safe(decoder, path + f'{no}_best_train_weights.hdf5', by_name=True)
 
         # in_dict = dg_val.__getitem__(0)[0]
 
