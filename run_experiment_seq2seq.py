@@ -1,4 +1,5 @@
 from importlib import reload
+import traceback
 import numpy as np
 import os
 import copy
@@ -25,12 +26,13 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'32seq-max_beta={max_beta}')
+# ex = Experiment(f'32seq-{sys.argv[2:]}')
+ex = Experiment(f'32seq-medstate test non zero V')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
 
-ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
+# ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
 
 from sacred.utils import apply_backspaces_and_linefeeds
 ex.captured_out_filter = apply_backspaces_and_linefeeds
@@ -57,15 +59,16 @@ def train_config():
     st = 0
     nth_file = None
     vel_cutoff = 4
+    V_no_zeros = True
     data_folder_prefix = '_8'
 
     ##### Model Config ####
     ### general network params
     hierarchical = False
     variational = True
-    latent_size = 512
-    hidden_state = 1024
-    dense_size = 1024
+    latent_size = 256
+    hidden_state = 512
+    dense_size = 512
     dense_layers = 2
     recurrent_dropout=0.0
 
@@ -109,7 +112,7 @@ def train_config():
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.03
+    max_beta = 0.05
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -133,6 +136,7 @@ def train_model(_run,
                 st,
                 nth_file,
                 vel_cutoff,
+                V_no_zeros,
                 data_folder_prefix,
                 
                 # network params
@@ -190,9 +194,21 @@ def train_model(_run,
 
     # get training data
     assert seq_length % 4 == 0, 'Sequence length must be divisible by 4'
-    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), nth_file=nth_file, vel_cutoff=vel_cutoff, sub_beats=sub_beats)
+    model_datas_train, seconds = data.folder2examples('training_data/midi_train' + data_folder_prefix,
+                                                        sparse=True,
+                                                        use_base_key=use_base_key,
+                                                        beats_per_ex=int(seq_length / sub_beats),
+                                                        nth_file=nth_file,
+                                                        vel_cutoff=vel_cutoff,
+                                                        sub_beats=sub_beats,
+                                                        V_no_zeros=V_no_zeros)
     _run.info['seconds_train_data'] = seconds
-    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=True, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
+    model_datas_val, seconds = data.folder2examples('training_data/midi_val' + data_folder_prefix,
+                                                        sparse=True,
+                                                        use_base_key=use_base_key,
+                                                        beats_per_ex=int(seq_length / sub_beats),
+                                                        sub_beats=sub_beats,
+                                                        V_no_zeros=V_no_zeros)
     _run.info['seconds_val_data'] = seconds
 
     model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
@@ -265,8 +281,7 @@ def train_model(_run,
     autoencoder = tf.keras.Model(inputs=model_inputs_tf + ar_inputs_tf, outputs=pred, name=f'autoencoder')
     autoencoder.summary()
 
-    if continue_run != None:
-        autoencoder.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
+
 
 
 
@@ -284,8 +299,40 @@ def train_model(_run,
                                         t_force=True, batch_size = batch_size, seq_length=seq_length)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
+    
+
+    
     autoencoder.compile(optimizer=opt, loss=loss_for_train, metrics=metrics, loss_weights=loss_weights)
+
+    try:
+        print('freshly initialized:')
+        print(autoencoder.metrics_names)
+        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+    except:
+        print('evaluation failed')
+        print(traceback.format_exc())
+
+    if continue_run != None:
+        autoencoder.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
+    
+    try:
+        print('loaded weights:')
+        print(autoencoder.metrics_names)
+        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+    except:
+        print('evaluation failed')
+        print(traceback.format_exc())
+
     history = autoencoder.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
+
+    # attempt to evaluate the model
+    try:
+        print('freshly trained:')
+        print(autoencoder.metrics_names)
+        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+    except:
+        print('evaluation failed')
+        print(traceback.format_exc())
 
     # save the model history
     with open(f'{path}history-{epochs}epochs.json', 'w') as f:
@@ -330,7 +377,23 @@ def train_model(_run,
         zp_latent = sampling_fn(zp_param)
         with tf.compat.v1.Session():
             random_examples['z'] = zp_latent.eval()
+        try:
+            random_examples['H_out'] = random_examples['H_ar']
+            random_examples['V_out'] = random_examples['V_ar']
+            print('rebuilt model for prediction')
+            # need to compile before any predictions can be made!
+            decoder.compile(optimizer=opt, loss=loss_for_train, metrics=metrics, loss_weights=loss_weights)
+            print(decoder.metrics_names)
+            print(decoder.evaluate(random_examples, random_examples, batch_size=batch_size))
+        except Exception as exc:
+            print('evaluation failed')
+            print(traceback.format_exc())
         pred = decoder.predict(random_examples)
+        print('random_examples keys')
+        print(list(random_examples.keys()))
+
+
+
 
     else:
         pred = autoencoder.predict(random_examples)
