@@ -27,7 +27,7 @@ import src.losses as losses
 from sacred import Experiment
 from sacred.observers import MongoObserver
 # ex = Experiment(f'32seq-{sys.argv[2:]}')
-ex = Experiment(f'32seq-medstate test non zero V')
+ex = Experiment(f'32seq-medstate test non zero V with mse for V')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -106,7 +106,7 @@ def train_config():
     monitor = 'loss'
     loss_weights = [1, 3]
     clipvalue = 1
-    loss = losses.vae_custom_loss
+    loss = [losses.vae_custom_loss, 'mse']
     # loss = 'categorical_crossentropy'
     metrics = ['accuracy', 'categorical_crossentropy']
 
@@ -262,7 +262,7 @@ def train_model(_run,
 
     if variational:
         beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
-        if isinstance(loss, []):
+        if isinstance(loss, list):
             loss_for_train, beta_cb = loss[0](z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
             loss_for_train.extend(loss[1:])
         else:
