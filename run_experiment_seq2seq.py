@@ -262,7 +262,11 @@ def train_model(_run,
 
     if variational:
         beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
-        loss_for_train, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
+        if isinstance(loss, []):
+            loss_for_train, beta_cb = loss[0](z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
+            loss_for_train.extend(loss[1:])
+        else:
+            loss_for_train, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
         sampling_fn = models.sampling(batch_size, epsilon_std=epsilon_std)
         # z_input is the tensor that will be passed into the decoder
         z_input = layers.Lambda(sampling_fn)(z)
