@@ -208,6 +208,7 @@ key2int = {'C':0,'Am':0,'Db':1,'Bbm':1,'D':2,'Bm':2,'Eb':3,'Cm':3,'E':4,'C#m':4,
 int2key = {value: key for key, value in key2int.items()}
 
 def center_pm(pm, sub_beats=4):
+    """shift all notes by some constant so that the average offset is zero"""
     beat_length = 60 / pm.get_tempo_changes()[-1][0]
     sub_beat_length = beat_length / sub_beats
     max_offset = sub_beat_length / 2
@@ -236,7 +237,7 @@ def filter_notes(pm, vel_cutoff):
     pm.instruments[0].notes = [note for note in pm.instruments[0].notes if note.velocity >= vel_cutoff]
 
 
-def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False, vel_cutoff=4):
+def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_key=False, vel_cutoff=4, V_no_zeros=False):
     """Converts a pretty midi file into sparse matrices of hits, offsets, and velocities
     
     Arguments:
@@ -245,6 +246,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     sub_beats -- number of sub beats used to quantize the training example
     sparse -- whether or not to use a sparse representation (scipy sparse array)
     use_base_key -- whether or not to transpose all examples to the same key (C or Am)
+    V_no_zeros -- set all zero entries of V to the average example note velocity
 
     Returns:
     H, O, V, R -- sparse matrices (scipy) of shape (n_examples, beats_per_ex * sub_beats, 88):
@@ -341,6 +343,9 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     # get the mean velocity
     V_mean = np.array([[np.mean(v[np.where(v != 0)])] for v in V])
     
+    if V_no_zeros:
+        for i in range(len(V_mean)):
+            V[i][np.where(V[i] == 0)] = V_mean[i]
     
     key_int = np.zeros((n_examples,12))
     key_int[...,key2int[key]] = 1
@@ -352,7 +357,8 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
         key_int = [csc_matrix(k) for k in key_int]
         H = [csc_matrix(h) for h in H]
         O = [csc_matrix(o) for o in O]
-        V = [csc_matrix(v) for v in V]
+        if not V_no_zeros:
+            V = [csc_matrix(v) for v in V]
         R = [csc_matrix(r) for r in R]
         S = [csc_matrix(s) for s in S]
 
