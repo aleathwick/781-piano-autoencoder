@@ -54,7 +54,9 @@ class ModelData():
 
 class ModelDataGenerator(tf.keras.utils.Sequence):
     """NoteTuple data generator. Can transpose music on the fly, including chroma data."""
-    def __init__(self, data, inputs, outputs, t_force=True, seq_length=64,  batch_size=32, shuffle=True, transpose_on = True, st = 4, epoch_per_dataset=1):
+    def __init__(self, data, inputs, outputs, t_force=True, seq_length=64, 
+                batch_size=32, shuffle=True, transpose_on = True, st = 4,
+                epoch_per_dataset=1, V_no_zeros=False):
         """Initialization
 
         Arguments:
@@ -89,6 +91,7 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         # this controls epoch length
         self.epoch_per_dataset = 1 if epoch_per_dataset == None else epoch_per_dataset
         self.on_epoch_end()
+        self.V_no_zeros = V_no_zeros
 
     def __transpose(self):
         'Randomly transposes examples up or down by up to self.st semitones'
@@ -122,8 +125,11 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         if self.t_force:
             for output in self.outputs:
                 if self.model_datas[output].seq:
-                    input_data_batch[self.model_datas[output].name + '_ar'] = np.concatenate([np.zeros((self.batch_size, 1, self.model_datas[output].dim)),
-                                                                                                output_data_batch[self.model_datas[output].name + '_out'][:,:-1]], axis=-2)
+                    first_step = np.zeros((self.batch_size, 1, self.model_datas[output].dim))
+                    if self.V_no_zeros and output == 'V':
+                        for i in range(self.batch_size): 
+                            first_step[i,...] = input_data_batch['V_mean_in'][i]
+                    input_data_batch[self.model_datas[output].name + '_ar'] = np.concatenate([first_step, output_data_batch[self.model_datas[output].name + '_out'][:,:-1]], axis=-2)
 
         return input_data_batch, output_data_batch
 
