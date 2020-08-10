@@ -54,7 +54,7 @@ class ModelData():
 
 class ModelDataGenerator(tf.keras.utils.Sequence):
     """NoteTuple data generator. Can transpose music on the fly, including chroma data."""
-    def __init__(self, data, inputs, outputs, t_force=True, seq_length=64, 
+    def __init__(self, data, inputs, outputs, t_force=True, seq_length=64, sub_beats=2, 
                 batch_size=32, shuffle=True, transpose_on = True, st = 4,
                 epoch_per_dataset=1, V_no_zeros=False):
         """Initialization
@@ -93,6 +93,21 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         self.on_epoch_end()
         self.V_no_zeros = V_no_zeros
 
+        # prepare some inputs that are constant
+        # dummy variable containing nothering to 'stimulate' conductor lstm steps
+        self.dummy = np.zeros((self.batch_size,0))
+        ### beat indicator variables
+        # beat indicators go 0 0 1 1 ... 4 4 0 0 ...
+        sparse_indicators = [i // sub_beats % sub_beats for i in range(seq_length)]
+        # assuming here that there are 4 beats in a bar
+        self.beat_indicators = np.zeros((batch_size, seq_length, 4))
+        self.beat_indicators[:, [i for i in range(seq_length)], sparse_indicators] = 1
+        # sub beat indicators go 0 1 0 1 0 1 ...
+        sparse_indicators = [i % sub_beats for i in range(seq_length)]
+        self.sub_beat_indicators = np.zeros((batch_size, seq_length, sub_beats))
+        self.sub_beat_indicators[:, [i for i in range(seq_length)], sparse_indicators] = 1
+        #[1 if i % sub_beats == 0 else 0 for i in range(seq_length)]
+
     def __transpose(self):
         'Randomly transposes examples up or down by up to self.st semitones'
         for i in range(self.batch_size):
@@ -117,7 +132,10 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         
         input_data_batch = {input_data + '_in': self.model_datas[input_data].batch_data for input_data in self.inputs}
         # include dummy data, to help along LSTMs with no input
-        input_data_batch['dummy'] = np.zeros((self.batch_size,0))
+        input_data_batch['dummy'] = self.dummy
+        # include beat indicator variables
+        input_data_batch['beat_indicators'] = self.beat_indicators
+        input_data_batch['beat_indicators'] = self.beat_indicators
 
 
         output_data_batch = {output_data + '_out': self.model_datas[output_data].batch_data for output_data in self.outputs}
