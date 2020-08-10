@@ -17,7 +17,7 @@ n_notes = 88
 
 ########## model inputs and outputs ##########
 
-def get_model_reqs(model_inputs, model_outputs, **kwargs):
+def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
     """Given a list of model input and model output names, returns namedtuple objects with attributes for those in/outputs. 
     
     Notes:
@@ -35,7 +35,9 @@ def get_model_reqs(model_inputs, model_outputs, **kwargs):
     model_input_reqs_unfiltered = [model_input('H', n_notes, True),
                                 model_input('tempo', 1, False),
                                 model_input('key', 12, False),
-                                model_input('V_mean', 1, False)]
+                                model_input('V_mean', 1, False),
+                                model_input('beat_indicators', 4, True),
+                                model_input('sub_beat_indicators', sub_beats, True)]
 
     # model output requirements
     model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True),
@@ -99,8 +101,6 @@ def load_weights_safe(model, weights_path, by_name=True):
         if revert:
             print('All layer weights reverted to original values')
     
-    
-
 
 
 
@@ -327,7 +327,6 @@ def create_LSTMdecoder_graph_ar(z,
                             lstm_layers = 2,
                             hidden_state = 256,
                             dense_size = 256,
-                            n_notes=88,
                             chroma=False,
                             recurrent_dropout = 0.0,
                             stateful=False,
