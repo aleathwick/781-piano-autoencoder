@@ -28,21 +28,21 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
     """
     n_notes=88
     # I assume that data, aside from the sequential dimentsion, will never have more than 1 dimension
-    model_input = namedtuple('input', 'name dim seq')
-    model_output = namedtuple('output', 'name dim activation seq')
+    model_input = namedtuple('input', 'name dim seq md')
+    model_output = namedtuple('output', 'name dim activation seq md')
 
     # model input requirements
-    model_input_reqs_unfiltered = [model_input('H', n_notes, True),
-                                model_input('tempo', 1, False),
-                                model_input('key', 12, False),
-                                model_input('V_mean', 1, False),
-                                model_input('beat_indicators', 4, True),
-                                model_input('sub_beat_indicators', sub_beats, True)]
+    model_input_reqs_unfiltered = [model_input('H', n_notes, True, True),
+                                model_input('tempo', 1, False, True),
+                                model_input('key', 12, False, True),
+                                model_input('V_mean', 1, False, True),
+                                model_input('beat_indicators', 4, True, False),
+                                model_input('sub_beat_indicators', sub_beats, True, False)]
 
     # model output requirements
-    model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True),
-                                    model_output('O', n_notes, 'tanh', True),
-                                    model_output('V', n_notes, 'sigmoid', True)]
+    model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True, True),
+                                    model_output('O', n_notes, 'tanh', True, True),
+                                    model_output('V', n_notes, 'sigmoid', True, True)]
 
     model_input_reqs = [m_input for m_input in model_input_reqs_unfiltered if m_input.name in model_inputs]
     model_output_reqs = [m_output for m_output in model_output_reqs_unfiltered if m_output.name in model_outputs]

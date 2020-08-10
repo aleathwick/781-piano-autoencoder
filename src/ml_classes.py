@@ -72,6 +72,7 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         # make a dictionary of the required inputs/outputs
         self.model_datas = {model_data.name: model_data for model_data in data if model_data.name in set(inputs + outputs)}
         # ensure that there aren't any required inputs/outputs with no corresponding ModelData objects
+        # originally checked inputs too, but now there are beat indicator variables that 
         assert set(self.model_datas.keys()) >= set(inputs), "inputs required that had no ModelData objects provided"
         assert set(self.model_datas.keys()) >= set(outputs), "outputs required that had no ModelData objects provided"
         self.inputs = inputs
@@ -134,8 +135,8 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         # include dummy data, to help along LSTMs with no input
         input_data_batch['dummy'] = self.dummy
         # include beat indicator variables
-        input_data_batch['beat_indicators'] = self.beat_indicators
-        input_data_batch['beat_indicators'] = self.beat_indicators
+        input_data_batch['beat_indicators_in'] = self.beat_indicators
+        input_data_batch['sub_beat_indicators_in'] = self.sub_beat_indicators
 
 
         output_data_batch = {output_data + '_out': self.model_datas[output_data].batch_data for output_data in self.outputs}
