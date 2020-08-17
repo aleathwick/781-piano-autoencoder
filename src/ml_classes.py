@@ -5,7 +5,7 @@ import tensorflow as tf
  
 
 class ModelData():
-    def __init__(self, data, name, transposable, activation=None, seq=False):
+    def __init__(self, data, name, transposable, seq=False):
         """initializer
 
         Arguments:
@@ -137,10 +137,14 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
         # include beat indicator variables
         input_data_batch['beat_indicators_in'] = self.beat_indicators
         input_data_batch['sub_beat_indicators_in'] = self.sub_beat_indicators
+        # assign also to autoregressive version
+        input_data_batch['beat_indicators_in_ar'] = self.beat_indicators
+        input_data_batch['sub_beat_indicators_in_ar'] = self.sub_beat_indicators
 
 
         output_data_batch = {output_data + '_out': self.model_datas[output_data].batch_data for output_data in self.outputs}
-        # add any teacher forced data
+        # add any teacher forced data - that is, make all available as ar inputs
+        # maybe not the most efficient, to do this even if ar inputs aren't required? But doesn't seem to hit performance.
         if self.t_force:
             for output in self.outputs:
                 if self.model_datas[output].seq:

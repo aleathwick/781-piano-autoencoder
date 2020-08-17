@@ -365,6 +365,128 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     return {'H': H, 'O': O, 'V': V, 'R': R, 'S': S, 'tempo': tempo, 'key': key_int, 'V_mean': V_mean}
 
 
+def pm2nbq(pm, sub_beats):
+    """like note bin, but quantized version
+    
+    Arguments:
+    pm -- pretty midi object
+    sub_beats -- number of sub beats per beat
+    
+    Returns:
+    notes -- list of pm note objects, but with pitch in [0,87], velocity in [0,1], and start expressed as closest sub_beat number
+    
+    """
+    
+    sub_beat_len = pm.get_beats()[1] / sub_beats
+    
+    # don't want to edit the original pm object, so we make a copy of notes
+    notes = copy.deepcopy(pm.instruments[0].notes)
+    for note in notes:
+        note.pitch = midi_utils.pitchM2pitchB(note.pitch)
+        note.start = int(round(note.start / sub_beat_len))
+        note.velocity = note.velocity / 127
+    # rewrite note information for pm object. Need pitches and velocities in [0,1], and note starts expressed in nearest sub beat number
+#     notes = [[midi_utils.pitchM2pitchB(note.pitch), round(note.start / sub_beat_len), note.velocity / 127] for note in pm.instruments[0].notes]
+    
+    return notes
+
+def nbq2examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=0):
+    """takes note_bin_q and returns examples of specified length
+    
+    Arguments:
+    notes -- list of notes, note_bin_q style
+    seq_length -- length of each example
+    sub_beats -- number of sub beats per beat
+    example_bars_skip -- examples start every example_skip bars
+    
+    Returns:
+    Dictionary containing various information for each note of each training example.
+    See comments in code for details. 
+    
+    
+    Notes:
+    four bars is around 50 notes, for the _8 dataset.
+    
+    """
+    
+    # assuming that there are 4 beats to a bar!!!
+    notes.sort(key = lambda note: note.start)
+    # number of sub beats to skip forward by to get start of next example
+    sub_beat_skip = example_bars_skip * 4 * sub_beats
+    
+    # n prefix indicates it is by note - not by sub beat, as in HOV format
+    TSn = [] # starts, in sub beats (of whole example)
+    # these two together work as two indicator variables, together describing beat and sub beat
+    TBn = [] # starting beat (of bar)
+    TSBn = [] # starting sub beat (of beat)
+    Pn = [] # pitches
+    PSn = [] # pitch as continuous value in [0,1]
+    PCn = [] # pitch class in [0,11]
+    Vn = [] # velocities (in [0, 1])
+    
+    
+    # variable for starting sub beat of current example
+    example_sub_beat_start = 0
+    while len(notes) >= seq_length:
+        # get the values for the relevant notes
+        # timing
+        TSn.append([n.start - example_sub_beat_start for n in notes[:seq_length]])
+        TBn.append([ts // sub_beats for ts in TSn[-1]])
+        TSBn.append([ts % sub_beats for ts in TSn[-1]])
+        
+        # pitch
+        Pn.append([n.pitch for n in notes[:seq_length]])
+        PSn.append([p / 87 for p in Pn[-1]])
+        PCn.append([p % 12 for p in Pn[-1]])
+        
+        # velocities
+        Vn.append([n.velocity for n in notes[:seq_length]])
+        
+        example_sub_beat_start += sub_beat_skip
+        
+        # chop off example_skip beats from the start of the list of notes
+        i = 0
+        while notes[i].start < example_sub_beat_start:
+            i += 1
+        notes = notes[i:]
+    
+    n_examples = len(TSn)
+
+    # convert to np arrays
+    TSn = np.array(TSn)
+    TBn = np.array(TBn)
+    TSBn = np.array(TSBn)
+    Pn = np.array(Pn)
+    PSn = np.array(PSn)
+    PCn = np.array(PCn)
+    Vn = np.array(Vn)
+    
+    # get tempi for each example (identical for each example in same pm file)
+    tempo = np.array([[data.normalize_tempo(pm.get_tempo_changes()[-1][0])] for _ in range(n_examples)])
+    
+    # get key, expressed as integer
+    key_int = np.zeros((n_examples,12))
+    key_int[...,key2int[key]] = 1
+
+    # get mean velocity for each example
+    V_mean = np.array([[np.mean(v)] for v in V])
+
+    return {'TSn': TSn, 'TBn': TBn, 'TSBn': TSBn, 'Pn': Pn, 'PSn': PSn, 'PCn': PCn, 'Vn': Vn, 'tempo', tempo, 'key': key_int, 'V_mean': V_mean}
+
+def pm2nbq_examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=None, use_base_key=False):
+    """given pm, return nbq format examples (dictionary of features for each example)"""
+    notes = pm2nbq(pm, sub_beats)
+    if use_base_key and key != None:
+        semitones = -key2int[key]
+        if semitones < -6:
+            semitones += 12
+        for note in notes:
+            note.pitch += semitones
+    elif use_base_key and key == None:
+        print('Warning: no key provided, but use base key set to True. Unable to transpose.')
+        key=int2key[0]
+    nbq = nbq2examples(notes)
+    return nbq
 
 def pitchM2pitchB(pitchM):
     """Maps midi notes to [0, 87]"""

@@ -76,13 +76,63 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
     print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of data')
     
     if return_ModelData_object:
-        examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, activation='sigmoid', seq=True)
-        examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, activation='tanh', seq=True)
-        examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, activation='sigmoid', seq=True)
-        examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, activation='sigmoid', seq=True)
+        examples['H'] = ml_classes.ModelData(examples['H'], 'H', transposable=True, seq=True)
+        examples['O'] = ml_classes.ModelData(examples['O'], 'O', transposable=True, seq=True)
+        examples['V'] = ml_classes.ModelData(examples['V'], 'V', transposable=True, seq=True)
+        examples['R'] = ml_classes.ModelData(examples['R'], 'R', transposable=True, seq=True)
         # could change pedal to three indicator variables instead of two
-        examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, activation='sigmoid', seq=True)
+        examples['S'] = ml_classes.ModelData(examples['S'], 'S', transposable=False, seq=True)
         examples['key'] = ml_classes.ModelData(examples['key'], 'key', transposable=True)
+        examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
+        examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
+    return examples, seconds
+
+def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, example_bars_skip=4, use_base_key=False, nth_file=None, vel_cutoff=4):
+    """Turn folder of midi files into examples for piano autoencoder
+
+    Arguments:
+    folder -- folder of midi files
+    return_ModelData_object -- choose to return ModelData objects, or arrays
+    seq_length -- length of each example in sub beats
+    sub_beats -- sub beats per beat
+    example_bars_skip -- skip in bars to start of next example
+    use_base_key -- if true, transpose all examples to C/Am
+    nth_file -- use only every nth file
+    vel_cutoff -- set velocity threshold for note inclusion
+
+    Returns:
+    examples -- dictionary of ModelData objects or arrays
+    seconds -- total amount of data, in seconds
+
+    """
+    
+    examples = {key: [] for key in ['TSn', 'TBn', 'TSBn', 'Pn', 'PSn', 'PCn', 'Vn']}
+    files = [file for file in os.scandir(folder) if not file.is_dir()]
+    if nth_file != None:
+        files = [f for i, f in enumerate(files) if i % nth_file == 0]
+    for file in tqdm(files):
+        pm = pretty_midi.PrettyMIDI(file.path)
+        midi_utils.filter_notes(pm, vel_cutoff)
+        # get the key from the filename, assuming it is the last thing before the extension
+        key = filepath2key(file.path)
+        file_examples = midi_utils.pm2nbq_examples(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key)
+        if file_examples != None:
+            for key, data in file_examples.items():
+                examples[key].extend(data)
+
+    # check out how much training data there is
+    mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))
+    seconds = 60 / mean_bpm * beats_per_ex * len(examples['H'])
+    time.strftime('%Hh %Mm %Ss', time.gmtime(seconds))
+    print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of data')
+    
+    if return_ModelData_object:
+        examples['TSn'] = ml_classes.ModelData(examples['TSn'], 'TSn', transposable=False, seq=True)
+        examples['TBn'] = ml_classes.ModelData(examples['TBn'], 'TBn', transposable=False, seq=True)
+        examples['TSBn'] = ml_classes.ModelData(examples['TSBn'], 'TSBn', transposable=False,  seq=True)
+        examples['Pn'] = ml_classes.ModelData(examples['Pn'], 'Pn', transposable=True, seq=True)
+        examples['PCn'] = ml_classes.ModelData(examples['PCn'], 'PCn', transposable=True,seq=True)
+        examples['Vn'] = ml_classes.ModelData(examples['Vn'], 'Vn', transposable=True)
         examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
         examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
     return examples, seconds
