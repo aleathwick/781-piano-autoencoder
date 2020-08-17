@@ -27,8 +27,8 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
 
     """
     n_notes=88
-    # I assume that data, aside from the sequential dimentsion, will never have more than 1 dimension
-    model_input = namedtuple('input', 'name dim seq md')
+    # I assume that data, aside from the sequential dimension, will never have more than 1 dimension
+    model_input = namedtuple('input', 'name dim seq md') # md refers to whether or not an md object is normally supplied to the data generator
     model_output = namedtuple('output', 'name dim activation seq md')
 
     # model input requirements
@@ -37,12 +37,22 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
                                 model_input('key', 12, False, True),
                                 model_input('V_mean', 1, False, True),
                                 model_input('beat_indicators', 4, True, False),
-                                model_input('sub_beat_indicators', sub_beats, True, False)]
+                                model_input('sub_beat_indicators', sub_beats, True, False)
+
+                                # nbq inputs
+                                model_input('TSn', 1, True, True),
+                                model_input('TBn', 4, True, True),
+                                model_input('TSBn', sub_beats, True, True),
+                                model_input('Pn', n_notes, True, True),
+                                model_input('PCn', 12, True, True)]
 
     # model output requirements
     model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True, True),
                                     model_output('O', n_notes, 'tanh', True, True),
-                                    model_output('V', n_notes, 'sigmoid', True, True)]
+                                    model_output('V', n_notes, 'sigmoid', True, True)
+                                    
+                                    # nbq outputs
+                                    model_output('Vn', 1, 'sigmoid', True, True)]
 
     model_input_reqs = [m_input for m_input in model_input_reqs_unfiltered if m_input.name in model_inputs]
     model_output_reqs = [m_output for m_output in model_output_reqs_unfiltered if m_output.name in model_outputs]
@@ -351,8 +361,8 @@ def create_LSTMdecoder_graph_ar(z,
     # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
     if ar_inputs == None:
         ar_inputs = [model_output.name for model_output in model_output_reqs]
-    else:
-        assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+    # else:
+        # assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
 
     # initial dense layer to transform z
     x = layers.Dense(dense_size, activation='relu', name='initial_dense')(z)
@@ -859,6 +869,104 @@ def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, model_datas, 
     outputs = [np.concatenate(outputs, axis=-2) for outputs, raw_out in zip(outputs, model_output_reqs)]
     
     return outputs
+
+
+
+######### nbq models #############
+
+def create_nbq_bi_graph(model_input_reqs, 
+                        seq_length = seq_length,  
+                        bi_lstm_layers = 3,  
+                        hidden_state = 512,  
+                        recurrent_dropout = 0.0,
+                        
+                        model_output_reqs,
+                        ar_inputs=None,
+                        uni_lstm_layers = 2,
+                        dense_size = 256,
+                        stateful=False,
+                        batch_size=None,
+                        ar_inc_batch_shape=False,
+                        **kwargs):
+    """layers for LSTM encoder, returning latent vector as output
+    
+    Arguments:
+    seq_inputs -- inputs that are sequential in nature
+    aux_inputs -- other inputs
+    seq_length -- time steps per training example
+    hidden_state -- size of LSTM hidden state
+    supplemental_inputs -- list ints, where each int is the dimension of an input. These inputs will be converted from int to one hot.
+    ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
+
+    """
+    # pass input through non final lstm layers, returning sequences each time
+    seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
+
+    repeated_inputs = []
+    if len(aux_inputs) > 0:
+        # layer for repeating aux inputs
+        repeat_aux_inputs = layers.RepeatVector(seq_length, name=f'repeat{seq_length}Times')
+        repeated_inputs = [repeat_aux_inputs(aux_input) for aux_input in aux_inputs]
+    if len(seq_inputs) + len(repeated_inputs) > 1:
+        x = layers.concatenate(seq_inputs + repeated_inputs, name='joinModelInput')
+    else:
+        x = seq_inputs[0]
+    for i in range(bi_lstm_layers - 1):
+        x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True,
+                                recurrent_dropout=recurrent_dropout, name=f'bi_lstm_{i}')(x)
+    
+    # pass through final lstm layer
+    x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{bi_lstm_layers - 1}'), name=f'bi_enc_lstm_{bi_lstm_layers - 1}')(x)
+
+    ## at this point, x is the bidirectionally encoded lstm sequence
+
+
+    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
+    if ar_inputs == None:
+        ar_inputs = [model_output.name for model_output in model_output_reqs]
+    # else:
+        # assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
+    
+    # get teacher forced inputs
+    # the model will only be stateful if it is being used for prediction
+    if not stateful:
+        if ar_inc_batch_shape:
+            ar_inputs = [tf.keras.Input((seq_length,model_output.dim), batch_size=batch_size, name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+        else:
+            ar_inputs = [tf.keras.Input((seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+    else:
+        # if this executes, then the model is being used for prediction, and batch size is 1
+        ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
+    
+
+    # I could still use the initial state from dense thing, bidirectional previous layer would have many time steps...
+    # could just take first time step from bidirectional layers?
+
+    # if initial_state_from_dense:
+    #     for i in range(lstm_layers - 1):
+    #         h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_{i}')(z)
+    #         c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_{i}')(z)
+    #         x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}')(x, initial_state=[h0, c0])
+    #     h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_final')(z)
+    #     c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_final')(z)
+    #     x = layers.concatenate(ar_inputs + [x], axis=-1)
+    #     x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x, initial_state=[h0, c0])
+
+    # concat teacher forced inputs with x
+    x = layers.concatenate(ar_inputs + [x], axis=-1)
+    # pass input through non final lstm layers, returning sequences each time
+    for i in range(uni_lstm_layers - 1):
+        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name=f'uni_lstm_{i}')(x)
+    
+    # pass through final lstm layer
+    x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='uni_lstm_final')(x)
+
+    # predict outputs
+    outputs = []
+    for output in model_output_reqs:
+        outputs.append(layers.TimeDistributed(layers.Dense(output.dim, activation=output.activation, name=output.name + output.activation), name=output.name + '_out')(x))
+
+    return ar_inputs + seq_inputs + aux_inputs, outputs
 
 
 ########## Plotting model output ##########
