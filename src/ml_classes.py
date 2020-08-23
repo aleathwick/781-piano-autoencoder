@@ -149,6 +149,7 @@ class ModelDataGenerator(tf.keras.utils.Sequence):
             for output in self.outputs:
                 if self.model_datas[output].seq:
                     first_step = np.zeros((self.batch_size, 1, self.model_datas[output].dim))
+                    # V_no_zeros means we want non-note elements of V to be the average velocity of that example
                     if self.V_no_zeros and output == 'V':
                         for i in range(self.batch_size): 
                             first_step[i,...] = input_data_batch['V_mean_in'][i]

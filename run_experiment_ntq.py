@@ -26,7 +26,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'32seq-cce-{sys.argv[2:]}')
+ex = Experiment(f'DELETE ntq debug')
 # ex = Experiment(f'32seq-no ar V')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
@@ -54,10 +54,11 @@ def train_config():
     model_outputs = ['Vn']
     seq_length = 50
     sub_beats = 2
+    example_bars_skip = 4
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 10
     vel_cutoff = 4
     data_folder_prefix = '_8'
 
@@ -87,8 +88,8 @@ def train_config():
     monitor = 'loss'
     loss_weights = None
     clipvalue = 1
-    loss = 'categorical_crossentropy'
-    metrics = ['accuracy', 'categorical_crossentropy', 'mse']
+    loss = 'mse'
+    metrics = ['accuracy', 'mse']
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
@@ -109,6 +110,7 @@ def train_model(_run,
                 model_outputs,
                 seq_length,
                 sub_beats,
+                example_bars_skip,
                 use_base_key,
                 transpose,
                 st,
@@ -148,7 +150,7 @@ def train_model(_run,
         for key, value in locals().items():
             f.write(f'{key} = {value}\n')
         
-    model_datas_train, seconds = folder2nbq('training_data/midi_train' + data_folder_prefix, 
+    model_datas_train, seconds = data.folder2nbq('training_data/midi_train' + data_folder_prefix, 
                                             return_ModelData_object=True,
                                             seq_length=seq_length, 
                                             sub_beats=sub_beats, 
@@ -157,7 +159,7 @@ def train_model(_run,
                                             nth_file=nth_file, 
                                             vel_cutoff=vel_cutoff)
     _run.info['seconds_train_data'] = seconds
-    model_datas_train, seconds = folder2nbq('training_data/midi_val' + data_folder_prefix, 
+    model_datas_val, seconds = data.folder2nbq('training_data/midi_val' + data_folder_prefix, 
                                             return_ModelData_object=True,
                                             seq_length=seq_length, 
                                             sub_beats=sub_beats, 
@@ -201,10 +203,10 @@ def train_model(_run,
                     'conv':conv,
                     }
 
-    model_inputs_tf, pred = create_nbq_bi_graph(model_input_reqs, model_output_reqs, **model_kwargs)
+    inputs_tf, pred = models.create_nbq_bi_graph(model_input_reqs, model_output_reqs, **model_kwargs)
 
 
-    model = tf.keras.Model(inputs=model_inputs_tf + ar_inputs_tf, outputs=pred, name=f'bi_uni_model')
+    model = tf.keras.Model(inputs=inputs_tf, outputs=pred, name=f'bi_uni_model')
     model.summary()
 
 
@@ -234,19 +236,19 @@ def train_model(_run,
 
     try:
         print('freshly initialized:')
-        print(autoencoder.metrics_names)
-        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+        print(model.metrics_names)
+        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
     except:
         print('evaluation failed')
         print(traceback.format_exc())
 
     if continue_run != None:
-        autoencoder.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
+        model.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
     
     try:
         print('loaded weights:')
-        print(autoencoder.metrics_names)
-        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+        print(model.metrics_names)
+        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
     except:
         print('evaluation failed')
         print(traceback.format_exc())
@@ -256,8 +258,8 @@ def train_model(_run,
     # attempt to evaluate the model
     try:
         print('freshly trained:')
-        print(autoencoder.metrics_names)
-        print(autoencoder.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+        print(model.metrics_names)
+        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
     except:
         print('evaluation failed')
         print(traceback.format_exc())
@@ -282,7 +284,7 @@ def train_model(_run,
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
 
-    pred = autoencoder.predict(random_examples)
+    pred = model.predict(random_examples)
     
     # now need function that returns nbq to midi...
 

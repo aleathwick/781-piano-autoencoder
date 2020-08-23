@@ -2,6 +2,7 @@ import pretty_midi
 import numpy as np
 from scipy.sparse import csc_matrix
 import src.data as data
+import src.models as models
 from collections import namedtuple
 import copy
 
@@ -79,7 +80,7 @@ def bin_sus(pm, cutoff = 64):
 
 
 def desus(pm, cutoff = 64):
-    """Remove sustain pedal, and lengthen notes to emulate sustain effect"""
+    """(in place!) Remove sustain pedal, and lengthen notes to emulate sustain effect"""
     # collect intervals in which pedal is down, and remove the pedal messages
     filtered_cc = []
     sustain = False
@@ -291,9 +292,6 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     sub_beat_times = [i + j * sub_beat_length for i in pm.get_beats() for j in range(sub_beats)]
     sub_beat_times = sub_beat_times[:n_examples * sub_beats_per_ex]
 
-
-
-
     # sort pedal
     S = np.zeros((n_examples * sub_beats_per_ex, 2))
     for message in sustain:
@@ -365,7 +363,7 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
     return {'H': H, 'O': O, 'V': V, 'R': R, 'S': S, 'tempo': tempo, 'key': key_int, 'V_mean': V_mean}
 
 
-def pm2nbq(pm, sub_beats):
+def pm2notes_q(pm, sub_beats):
     """like note bin, but quantized version
     
     Arguments:
@@ -382,15 +380,16 @@ def pm2nbq(pm, sub_beats):
     # don't want to edit the original pm object, so we make a copy of notes
     notes = copy.deepcopy(pm.instruments[0].notes)
     for note in notes:
-        note.pitch = midi_utils.pitchM2pitchB(note.pitch)
+        note.pitch = pitchM2pitchB(note.pitch)
         note.start = int(round(note.start / sub_beat_len))
+        note.end = int(round(note.end / sub_beat_len))
         note.velocity = note.velocity / 127
     # rewrite note information for pm object. Need pitches and velocities in [0,1], and note starts expressed in nearest sub beat number
 #     notes = [[midi_utils.pitchM2pitchB(note.pitch), round(note.start / sub_beat_len), note.velocity / 127] for note in pm.instruments[0].notes]
     
     return notes
 
-def nbq2examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=0):
+def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4, key=0):
     """takes note_bin_q and returns examples of specified length
     
     Arguments:
@@ -415,67 +414,88 @@ def nbq2examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=0):
     sub_beat_skip = example_bars_skip * 4 * sub_beats
     
     # n prefix indicates it is by note - not by sub beat, as in HOV format
-    TSn = [] # starts, in sub beats (of whole example)
-    # these two together work as two indicator variables, together describing beat and sub beat
-    TBn = [] # starting beat (of bar)
-    TSBn = [] # starting sub beat (of beat)
-    Pn = [] # pitches
-    PSn = [] # pitch as continuous value in [0,1]
-    PCn = [] # pitch class in [0,11]
-    Vn = [] # velocities (in [0, 1])
+    features = {'TSn': [], # starts, in sub beats (of whole example)
+                'TEn': [], # ends, in sub beats (of whole example)
+                # these three work together as indicator variables, together describing measure, beat, and sub beat
+                'TBn': [], # note beat (of measure)
+                'TMn': [], # note measure (of example, allow up to 16?)
+                'TSBn': [], # note sub beat (of beat)
+                'Pn': [], # pitches
+                'PSn': [], # pitch as continuous value in [0,1]
+                'PCn': [], # pitch class in [0,11]
+                'Vn': []} # velocities (in [0, 1])
     
     
     # variable for starting sub beat of current example
     example_sub_beat_start = 0
     while len(notes) >= seq_length:
         # get the values for the relevant notes
-        # timing
-        TSn.append([n.start - example_sub_beat_start for n in notes[:seq_length]])
-        TBn.append([ts // sub_beats for ts in TSn[-1]])
-        TSBn.append([ts % sub_beats for ts in TSn[-1]])
+        # note: LSTM inputs must have 3 dimensions! hence the extra [] around elements in list comprehensions
+        features['TSn'].append([n.start - example_sub_beat_start for n in notes[:seq_length]])
+        features['TEn'].append([n.end - example_sub_beat_start for n in notes[:seq_length]])
+
+        # each element 
+        features['TBn'].append([[ts % (sub_beats * 4) // sub_beats] for ts in features['TSn'][-1]])
+        features['TMn'].append([[ts // (sub_beats * 4)] for ts in features['TSn'][-1]])
+        features['TSBn'].append([[ts % sub_beats] for ts in features['TSn'][-1]])
         
         # pitch
-        Pn.append([n.pitch for n in notes[:seq_length]])
-        PSn.append([p / 87 for p in Pn[-1]])
-        PCn.append([p % 12 for p in Pn[-1]])
+        features['Pn'].append([n.pitch for n in notes[:seq_length]])
+        # these aren't OHE, but LSTM needs 3 dimensional input, hence extra [] around every element
+        features['PSn'].append([[p / 87] for p in features['Pn'][-1]])
+        features['PCn'].append([[p % 12] for p in features['Pn'][-1]])
         
         # velocities
-        Vn.append([n.velocity for n in notes[:seq_length]])
+        # again, need extra dimension for LSTMs
+        features['Vn'].append([[n.velocity] for n in notes[:seq_length]])
         
         example_sub_beat_start += sub_beat_skip
         
         # chop off example_skip beats from the start of the list of notes
         i = 0
-        while notes[i].start < example_sub_beat_start:
+        while i < (len(notes) - 1) and notes[i].start < example_sub_beat_start:
             i += 1
         notes = notes[i:]
-    
-    n_examples = len(TSn)
 
-    # convert to np arrays
-    TSn = np.array(TSn)
-    TBn = np.array(TBn)
-    TSBn = np.array(TSBn)
-    Pn = np.array(Pn)
-    PSn = np.array(PSn)
-    PCn = np.array(PCn)
-    Vn = np.array(Vn)
+    # print([k + str(max(v)) for k, v in features.items()])
+    n_examples = len(features['TSn'])
+    # print([(K, np.max([np.array(V).flatten()])) for K, V in features.items()])
+    # convert to np arrays... a little more complex because we need to go to one hot encoding
+    # get model input/output reqs, which stores dimension data for all outputs and inputs
+    model_reqs = models.get_model_reqs(model_inputs='all', model_outputs='all', sub_beats=sub_beats, seq_length=seq_length)
+    # convert to OHE np array if appropriate, otherwise convert to np array
+    # use model input/output reqs to get OHE appropriateness
+    for f in features.keys():
+        features[f] = np.array(features[f])
+        if model_reqs[f].ohe:
+            # this is the number of variables the feature has for each timestep
+            dim = model_reqs[f].dim
+            # empty array of required shape
+            expanded = np.zeros((n_examples,seq_length,dim))
+            # print(f)
+            # print(str(expanded.shape) + f)
+            # make ones where needed
+            # requires careful construction of indices!
+            expanded[[i for i in range(n_examples) for _ in range(seq_length)],[j for i in range(n_examples) for j in range(seq_length)],features[f].flatten()] = 1
+            features[f] = expanded
     
     # get tempi for each example (identical for each example in same pm file)
-    tempo = np.array([[data.normalize_tempo(pm.get_tempo_changes()[-1][0])] for _ in range(n_examples)])
+    features['tempo'] = np.array([[data.normalize_tempo(pm.get_tempo_changes()[-1][0])] for _ in range(n_examples)])
     
-    # get key, expressed as integer
+    # get key, one hot encoded
     key_int = np.zeros((n_examples,12))
     key_int[...,key2int[key]] = 1
+    features['key'] = key_int
 
     # get mean velocity for each example
-    V_mean = np.array([[np.mean(v)] for v in V])
+    features['V_mean'] = np.array([[np.mean(v)] for v in features['Vn']])
 
-    return {'TSn': TSn, 'TBn': TBn, 'TSBn': TSBn, 'Pn': Pn, 'PSn': PSn, 'PCn': PCn, 'Vn': Vn, 'tempo', tempo, 'key': key_int, 'V_mean': V_mean}
+    return features
 
-def pm2nbq_examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=None, use_base_key=False):
+def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key=None, use_base_key=False):
     """given pm, return nbq format examples (dictionary of features for each example)"""
-    notes = pm2nbq(pm, sub_beats)
+    desus(pm)
+    notes = pm2notes_q(pm, sub_beats)
     if use_base_key and key != None:
         semitones = -key2int[key]
         if semitones < -6:
@@ -485,7 +505,8 @@ def pm2nbq_examples(notes, seq_length=60, sub_beats=2, example_bars_skip=4, key=
     elif use_base_key and key == None:
         print('Warning: no key provided, but use base key set to True. Unable to transpose.')
         key=int2key[0]
-    nbq = nbq2examples(notes)
+    # include the pm, so that 
+    nbq = notes_q2nbq(notes, pm, key=key, sub_beats=sub_beats, seq_length=seq_length)
     return nbq
 
 def pitchM2pitchB(pitchM):

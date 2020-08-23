@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-# ex = Experiment(f'32seq-{sys.argv[2:]}')
-ex = Experiment(f'32seq-medstate test non zero V with mse for V')
+ex = Experiment(f'32seq-cce-{sys.argv[2:]}')
+# ex = Experiment(f'32seq-no ar V')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -59,7 +59,8 @@ def train_config():
     st = 0
     nth_file = None
     vel_cutoff = 4
-    V_no_zeros = True
+    V_no_zeros = True # should velocity matrix have zeros or average velocity?
+    # V_rigged = False # should the autoregressive output velocity be... RIGGED? i.e. all = V_mean
     data_folder_prefix = '_8'
 
     ##### Model Config ####
@@ -90,7 +91,7 @@ def train_config():
     ### decoder params
     decoder_lstms=2
     # ar_inputs only works as parameter for non hierarchical graph, currently
-    ar_inputs = None
+    ar_inputs = None # None => all outputs
     conductors=2
     conductor_steps= int(seq_length/16)
     conductor_state_size=None # none => same as decoder
@@ -100,19 +101,19 @@ def train_config():
     ##### Training Config ####
     batch_size = 64
     lr = 0.001
-    lr_decay_rate = 0.2**(1/1500)
+    lr_decay_rate = 0.3**(1/1500)
     min_lr = 0.00005
     epochs = 1500
     monitor = 'loss'
-    loss_weights = [1, 3]
+    loss_weights = [1, 10000]
     clipvalue = 1
-    loss = [losses.vae_custom_loss, 'mse']
+    loss = [losses.vae_custom_loss, 'categorical_crossentropy']
     # loss = 'categorical_crossentropy'
-    metrics = ['accuracy', 'categorical_crossentropy']
+    metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
     # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
     # Variational specific parameters
-    max_beta = 0.05
+    max_beta = 3
     beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
     free_bits=0
     kl_weight = 1
@@ -211,7 +212,7 @@ def train_model(_run,
                                                         V_no_zeros=V_no_zeros)
     _run.info['seconds_val_data'] = seconds
 
-    model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs)
+    model_input_reqs, model_output_reqs = models.get_model_reqs(model_inputs, model_outputs, sub_beats=sub_beats, seq_length=seq_length)
 
     callbacks = []
     # train loss model checkpoint
@@ -263,7 +264,8 @@ def train_model(_run,
     if variational:
         beta_fn = exp_utils.beta_fn2(beta_rate, max_beta)
         if isinstance(loss, list):
-            loss_for_train, beta_cb = loss[0](z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
+            l, beta_cb = loss[0](z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
+            loss_for_train = [l]
             loss_for_train.extend(loss[1:])
         else:
             loss_for_train, beta_cb = loss(z, beta_fn, free_bits=free_bits, kl_weight=kl_weight, run=_run)
@@ -293,14 +295,16 @@ def train_model(_run,
     # tf.keras.utils.plot_model(seq_model, to_file=f'{path}model_plot.png')
 
     dg = ml_classes.ModelDataGenerator([md for md in model_datas_train.values()],
-                                        [model_in.name for model_in in model_input_reqs],
-                                        [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
+                                        [model_in.name for model_in in model_input_reqs if model_in.md],
+                                        [model_out.name for model_out in model_output_reqs if model_out.md],
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length,
+                                        sub_beats=sub_beats, V_no_zeros=V_no_zeros)
 
     dg_val = ml_classes.ModelDataGenerator([md for md in model_datas_val.values()],
-                                        [model_in.name for model_in in model_input_reqs],
-                                        [model_out.name for model_out in model_output_reqs],
-                                        t_force=True, batch_size = batch_size, seq_length=seq_length)
+                                        [model_in.name for model_in in model_input_reqs if model_in.md],
+                                        [model_out.name for model_out in model_output_reqs if model_out.md],
+                                        t_force=True, batch_size = batch_size, seq_length=seq_length,
+                                        sub_beats=sub_beats, V_no_zeros=V_no_zeros)
 
     opt = tf.keras.optimizers.Adam(learning_rate=lr, clipvalue=clipvalue)
     

@@ -7,6 +7,7 @@ import time
 import pickle
 import src.midi_utils as midi_utils
 import src.ml_classes as ml_classes
+import src.models as models
 from collections import namedtuple
 from scipy.sparse import csc_matrix
 import tensorflow as tf
@@ -106,7 +107,7 @@ def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, 
 
     """
     
-    examples = {key: [] for key in ['TSn', 'TBn', 'TSBn', 'Pn', 'PSn', 'PCn', 'Vn']}
+    examples = {key: [] for key in ['TSn', 'TEn', 'TBn', 'TMn', 'TSBn', 'Pn', 'PSn', 'PCn', 'Vn', 'tempo', 'key', 'V_mean']}
     files = [file for file in os.scandir(folder) if not file.is_dir()]
     if nth_file != None:
         files = [f for i, f in enumerate(files) if i % nth_file == 0]
@@ -115,26 +116,23 @@ def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, 
         midi_utils.filter_notes(pm, vel_cutoff)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
-        file_examples = midi_utils.pm2nbq_examples(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key)
+        file_examples = midi_utils.pm2nbq(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key)
         if file_examples != None:
             for key, data in file_examples.items():
                 examples[key].extend(data)
 
     # check out how much training data there is
     mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))
-    seconds = 60 / mean_bpm * beats_per_ex * len(examples['H'])
+    unique_beats_per_example = example_bars_skip * 4
+    seconds = 60 / mean_bpm * unique_beats_per_example * len(examples['TSn'])
     time.strftime('%Hh %Mm %Ss', time.gmtime(seconds))
     print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of data')
     
     if return_ModelData_object:
-        examples['TSn'] = ml_classes.ModelData(examples['TSn'], 'TSn', transposable=False, seq=True)
-        examples['TBn'] = ml_classes.ModelData(examples['TBn'], 'TBn', transposable=False, seq=True)
-        examples['TSBn'] = ml_classes.ModelData(examples['TSBn'], 'TSBn', transposable=False,  seq=True)
-        examples['Pn'] = ml_classes.ModelData(examples['Pn'], 'Pn', transposable=True, seq=True)
-        examples['PCn'] = ml_classes.ModelData(examples['PCn'], 'PCn', transposable=True,seq=True)
-        examples['Vn'] = ml_classes.ModelData(examples['Vn'], 'Vn', transposable=True)
-        examples['tempo'] = ml_classes.ModelData(examples['tempo'], 'tempo', transposable=False)
-        examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
+        # info for each input/output as regards transposability and sequentiality can be retrieved from the get_model_reqs function
+        model_inputs = models.get_model_reqs('all', 'all')
+        for k in examples.keys():
+            examples[k] = ml_classes.ModelData(examples[k], k, transposable=model_inputs[k].transposable, seq=model_inputs[k].seq)
     return examples, seconds
 
 
@@ -219,9 +217,9 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
 
     # select n random examples
     if n !=0 and n != None:
-        idx = np.random.randint(0, len(model_datas['H']), n)
+        idx = np.random.randint(0, len(list(model_datas.values())[0]), n)
     
-    # add dummy variable (for conductor LSTM)
+    # add dummy variable (for conductor LSTM, if it exists)
     random_examples['dummy']= np.zeros((len(idx),0))
 
     # extract data for each training example from the model datas

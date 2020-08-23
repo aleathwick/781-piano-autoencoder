@@ -17,7 +17,7 @@ n_notes = 88
 
 ########## model inputs and outputs ##########
 
-def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
+def get_model_reqs(model_inputs, model_outputs, sub_beats=2, seq_length=50, **kwargs):
     """Given a list of model input and model output names, returns namedtuple objects with attributes for those in/outputs. 
     
     Notes:
@@ -28,31 +28,49 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=4, **kwargs):
     """
     n_notes=88
     # I assume that data, aside from the sequential dimension, will never have more than 1 dimension
-    model_input = namedtuple('input', 'name dim seq md') # md refers to whether or not an md object is normally supplied to the data generator
-    model_output = namedtuple('output', 'name dim activation seq md')
+    # md - refers to whether or not an md object is normally supplied to the data generator
+    # ohe - is this input one hot encoded? 
+    model_input = namedtuple('input', 'name dim seq md ohe transposable') 
+    model_output = namedtuple('output', 'name dim activation seq md ohe transposable') 
 
     # model input requirements
-    model_input_reqs_unfiltered = [model_input('H', n_notes, True, True),
-                                model_input('tempo', 1, False, True),
-                                model_input('key', 12, False, True),
-                                model_input('V_mean', 1, False, True),
-                                model_input('beat_indicators', 4, True, False),
-                                model_input('sub_beat_indicators', sub_beats, True, False)
+    model_input_reqs_unfiltered = [
+                                ### HOV inputs
+                                model_input('H', n_notes, True, True, ohe=False, transposable=True),
+                                model_input('tempo', 1, False, True, ohe=False, transposable=False),
+                                model_input('key', 12, False, True, ohe=True, transposable=True),
+                                model_input('V_mean', 1, False, True, ohe=False, transposable=False),
+                                model_input('beat_indicators', 4, True, False, ohe=True, transposable=False),
+                                model_input('sub_beat_indicators', sub_beats, True, False, ohe=True, transposable=False),
 
-                                # nbq inputs
-                                model_input('TSn', 1, True, True),
-                                model_input('TBn', 4, True, True),
-                                model_input('TSBn', sub_beats, True, True),
-                                model_input('Pn', n_notes, True, True),
-                                model_input('PCn', 12, True, True)]
+                                ### nbq inputs
+                                # TSn and TEn should really be ohe, but max sub beat is not determined ahead of time...
+                                # could remedy this by taking sub beat mod 64, or something like that
+                                model_input('TSn', seq_length, True, True, ohe=False, transposable=False), # note starts in sub beats
+                                model_input('TEn', seq_length, True, True, ohe=False, transposable=False), # note ends in sub beats
+                                model_input('TBn', 4, True, True, ohe=True, transposable=False), # note starts in beats of bar 
+                                model_input('TMn', 16, True, True, ohe=True, transposable=False), # note starts in beats of bar 
+                                model_input('TSBn', sub_beats, True, True, ohe=True, transposable=False), # note starts in sub beats of beat
+                                model_input('Pn', n_notes, True, True, ohe=True, transposable=True), # pitch
+                                model_input('PSn', 1, True, True, ohe=False, transposable=False), # pitch as continuous value
+                                model_input('PCn', 12, True, True, ohe=True, transposable=True)] # pitch class
 
     # model output requirements
-    model_output_reqs_unfiltered = [model_output('H', n_notes, 'sigmoid', True, True),
-                                    model_output('O', n_notes, 'tanh', True, True),
-                                    model_output('V', n_notes, 'sigmoid', True, True)
+    model_output_reqs_unfiltered = [
+                                    ### HOV inputs
+                                    model_output('H', n_notes, 'sigmoid', True, True, ohe=False, transposable=True),
+                                    model_output('O', n_notes, 'tanh', True, True, ohe=False, transposable=True),
+                                    model_output('V', n_notes, 'sigmoid', True, True, ohe=False, transposable=True),
                                     
                                     # nbq outputs
-                                    model_output('Vn', 1, 'sigmoid', True, True)]
+                                    model_output('TEn', seq_length, 'softmax', True, True, ohe=False, transposable=False),
+                                    model_output('Vn', 1, 'sigmoid', True, True, ohe=False, transposable=False)]
+
+    if model_inputs == 'all' or model_outputs == 'all':
+        model_reqs = {m_input.name: m_input for m_input in model_input_reqs_unfiltered}
+        model_reqs.update({m_output.name: m_output for m_output in model_output_reqs_unfiltered})
+        return model_reqs
+                                    
 
     model_input_reqs = [m_input for m_input in model_input_reqs_unfiltered if m_input.name in model_inputs]
     model_output_reqs = [m_output for m_output in model_output_reqs_unfiltered if m_output.name in model_outputs]
@@ -874,13 +892,13 @@ def pred_from_h_decoder(conductor_out, decoder, model_output_reqs, model_datas, 
 
 ######### nbq models #############
 
-def create_nbq_bi_graph(model_input_reqs, 
+def create_nbq_bi_graph(model_input_reqs,
+                        model_output_reqs,
                         seq_length = seq_length,  
                         bi_lstm_layers = 3,  
                         hidden_state = 512,  
                         recurrent_dropout = 0.0,
                         
-                        model_output_reqs,
                         ar_inputs=None,
                         uni_lstm_layers = 2,
                         dense_size = 256,
@@ -899,35 +917,34 @@ def create_nbq_bi_graph(model_input_reqs,
     ar_inputs -- either None, in which case all outputs are fed back in auto regressively, or a list of input names
 
     """
+    ### inputs
     # pass input through non final lstm layers, returning sequences each time
     seq_inputs, aux_inputs = get_inputs(model_input_reqs, seq_length)
 
+    # inputs that aren't sequential will be repeated for each timestep
     repeated_inputs = []
     if len(aux_inputs) > 0:
         # layer for repeating aux inputs
         repeat_aux_inputs = layers.RepeatVector(seq_length, name=f'repeat{seq_length}Times')
         repeated_inputs = [repeat_aux_inputs(aux_input) for aux_input in aux_inputs]
+    
+    # concatenate repeated inputs with sequential inputs
     if len(seq_inputs) + len(repeated_inputs) > 1:
         x = layers.concatenate(seq_inputs + repeated_inputs, name='joinModelInput')
     else:
         x = seq_inputs[0]
+
+    # pass through bidirectional lstms
     for i in range(bi_lstm_layers - 1):
         x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True,
-                                recurrent_dropout=recurrent_dropout, name=f'bi_lstm_{i}')(x)
-    
-    # pass through final lstm layer
-    x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=False, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{bi_lstm_layers - 1}'), name=f'bi_enc_lstm_{bi_lstm_layers - 1}')(x)
+                                recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
+    x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{bi_lstm_layers - 1}'), name=f'bi_enc_lstm_{bi_lstm_layers - 1}')(x)
 
     ## at this point, x is the bidirectionally encoded lstm sequence
 
-
-    # check autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
+    # sort out autoregressive inputs - if a list hasn't been received, then ALL outputs will be passed in autoregressively
     if ar_inputs == None:
         ar_inputs = [model_output.name for model_output in model_output_reqs]
-    # else:
-        # assert set(ar_inputs) <= set([model_output.name for model_output in model_output_reqs]), f'ar_inputs contains invalid output names: {ar_inputs}'
-    
-    # get teacher forced inputs
     # the model will only be stateful if it is being used for prediction
     if not stateful:
         if ar_inc_batch_shape:
@@ -938,20 +955,6 @@ def create_nbq_bi_graph(model_input_reqs,
         # if this executes, then the model is being used for prediction, and batch size is 1
         ar_inputs = [tf.keras.Input(batch_shape=(1,seq_length,model_output.dim), name=f'{model_output.name}_ar') for model_output in model_output_reqs if model_output.seq == True and model_output.name in ar_inputs]
     
-
-    # I could still use the initial state from dense thing, bidirectional previous layer would have many time steps...
-    # could just take first time step from bidirectional layers?
-
-    # if initial_state_from_dense:
-    #     for i in range(lstm_layers - 1):
-    #         h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_{i}')(z)
-    #         c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_{i}')(z)
-    #         x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, name=f'dec_lstm_{i}')(x, initial_state=[h0, c0])
-    #     h0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_h0_final')(z)
-    #     c0 = layers.Dense(hidden_state, activation=initial_state_activation, name=f'lstm_c0_final')(z)
-    #     x = layers.concatenate(ar_inputs + [x], axis=-1)
-    #     x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, stateful=stateful, name='dec_lstm_final')(x, initial_state=[h0, c0])
-
     # concat teacher forced inputs with x
     x = layers.concatenate(ar_inputs + [x], axis=-1)
     # pass input through non final lstm layers, returning sequences each time
