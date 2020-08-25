@@ -26,7 +26,7 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'DELETE ntq debug')
+ex = Experiment(f'ntq-{sys.argv[2:]}')
 # ex = Experiment(f'32seq-no ar V')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
@@ -58,8 +58,8 @@ def train_config():
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = 10
-    vel_cutoff = 4
+    nth_file = None
+    vel_cutoff = 6
     data_folder_prefix = '_8'
 
     ##### Model Config ####
@@ -178,7 +178,7 @@ def train_model(_run,
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
                                 monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
     # early stopping, if needed
-    # callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=5))
+    callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=15))
     # log keras info to sacred
     callbacks.append(exp_utils.KerasInfoUpdater(_run))
     # learning rate scheduler
@@ -280,23 +280,22 @@ def train_model(_run,
 
     ### Make some predictions ###
     # load best weights
-    # models.load_weights_safe(autoencoder, path + f'{no}_best_train_weights.hdf5', by_name=False)
+    models.load_weights_safe(model, path + f'{no}_best_val_weights.hdf5', by_name=False)
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
 
     pred = model.predict(random_examples)
-    
-    # now need function that returns nbq to midi...
 
-    # # find axis that corresponds to velocity
-    # v_index = np.where(np.array(autoencoder.output_names) == 'V_out')[0][0]
-    # print('velocity index:', v_index)
-    # model_datas_pred, _ = data.folder2examples('training_data/midi_val' + data_folder_prefix, sparse=False, use_base_key=use_base_key, beats_per_ex=int(seq_length / sub_beats), sub_beats=sub_beats)
-    # model_datas = copy.deepcopy(model_datas_pred)
-    # model_datas_pred['V'].data[idx,...] = np.array(pred)[v_index,:,:,:]
-    # os.mkdir(path + 'midi/')
-    # for i in idx:
-    #     pm_original = data.examples2pm(model_datas, i, sub_beats=sub_beats)
-    #     pm_pred = data.examples2pm(model_datas_pred, i, sub_beats=sub_beats)
-    #     pm_original.write(path + 'midi/' + f'ex{i}original.mid')
-    #     pm_pred.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')
+    # find axis that corresponds to velocity
+    v_index = np.where(np.array(model.output_names) == 'Vn_out')[0][0]
+    print('velocity index:', v_index)
+    model_datas_pred = copy.deepcopy(model_datas_val)
+    model_datas_pred['Vn'].data[idx,...] = np.array(pred)[v_index,...]
+    os.mkdir(path + 'midi/')
+    for i in idx:
+        mds_orig = {md.name: md.data[i] for _, md in model_datas_val.items()}
+        mds_pred = {md.name: md.data[i] for _, md in model_datas_pred.items()}
+        pm_original = data.nbq2pm(mds_orig)
+        pm_pred = data.nbq2pm(mds_pred)
+        pm_original.write(path + 'midi/' + f'ex{i}original.mid')
+        pm_pred.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')

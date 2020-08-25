@@ -181,7 +181,7 @@ def sounding2chroma(sounding, mode='normal'):
 
 def snap_to_grid(event_time, size=8):
     """takes an event time (in seconds) and gives it back snapped to a grid.
-    I.e. multiples by 1000, then rounds to nearest multiple of 8
+    I.e. multiples by 1000, then rounds to nearest multiple of 8, if default grid is 8ms
     
     Parameters
     ----------
@@ -492,7 +492,7 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
 
     return features
 
-def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key=None, use_base_key=False):
+def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_base_key=False):
     """given pm, return nbq format examples (dictionary of features for each example)"""
     desus(pm)
     notes = pm2notes_q(pm, sub_beats)
@@ -508,6 +508,8 @@ def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key=None, use_ba
     # include the pm, so that 
     nbq = notes_q2nbq(notes, pm, key=key, sub_beats=sub_beats, seq_length=seq_length)
     return nbq
+
+
 
 def pitchM2pitchB(pitchM):
     """Maps midi notes to [0, 87]"""

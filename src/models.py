@@ -46,8 +46,8 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=2, seq_length=50, **kw
                                 ### nbq inputs
                                 # TSn and TEn should really be ohe, but max sub beat is not determined ahead of time...
                                 # could remedy this by taking sub beat mod 64, or something like that
-                                model_input('TSn', seq_length, True, True, ohe=False, transposable=False), # note starts in sub beats
-                                model_input('TEn', seq_length, True, True, ohe=False, transposable=False), # note ends in sub beats
+                                model_input('TSn', 1, True, True, ohe=False, transposable=False), # note starts in sub beats
+                                model_input('TEn', 1, True, True, ohe=False, transposable=False), # note ends in sub beats
                                 model_input('TBn', 4, True, True, ohe=True, transposable=False), # note starts in beats of bar 
                                 model_input('TMn', 16, True, True, ohe=True, transposable=False), # note starts in beats of bar 
                                 model_input('TSBn', sub_beats, True, True, ohe=True, transposable=False), # note starts in sub beats of beat

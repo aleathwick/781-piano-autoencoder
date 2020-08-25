@@ -140,7 +140,7 @@ def HOV2pm(md, sub_beats=4):
     """go from HOV and tempo to pretty midi
     
     Arguments:
-    md -- dictionary containing data for HOV and tempo
+    md -- dictionary containing data for HOV and tempo... NOT a md object, as the name would imply
     sub_beats - number of sub beats used for quantizing
     
     """
@@ -180,6 +180,24 @@ def HOV2pm(md, sub_beats=4):
     return pm
 
 
+def nbq2pm(md, sub_beats=2):
+    """given dicionary containing NBQ data for a single example, returns a pm object"""
+    tempo = normalize_tempo(md['tempo'], inverse=True)
+    beat_length = 60 / tempo[0]
+    sub_beat_length = beat_length / sub_beats
+    pm = pretty_midi.PrettyMIDI(resolution=960)
+    pm.instruments.append(pretty_midi.Instrument(0, name='piano'))
+    pitches = np.where(md['Pn'] == 1)[-1] + 21
+    for i in range(len(md['TEn'])):
+        velocity = int(md['Vn'][i] * 127)
+        start = md['TSn'][i] * sub_beat_length
+        end = md['TEn'][i] * sub_beat_length
+        pitch = pitches[i]
+        note = pretty_midi.Note(velocity=velocity, pitch=pitch, start=start, end=end)
+        pm.instruments[0].notes.append(note)
+    return pm
+    
+
 def examples2pm(md, i=None, sub_beats=4):
     """Turn a random training example into a pretty midi file
     
@@ -195,7 +213,6 @@ def examples2pm(md, i=None, sub_beats=4):
     for name, data in md.items():
         if isinstance(data, csc_matrix):
             md[name] = data.toarray()
-    md = {name: data for name, data in md.items()}
     pm = HOV2pm(md, sub_beats=sub_beats)
     return pm
 
@@ -230,7 +247,8 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
             data = np.array([d.toarray() for d in data])
         random_examples[md.name + '_in'] = data
         # if it is sequential data, also add it as an ar input (just in case)
-        if md.seq:
+        # TSn and TEn lack the extra dimension, but they're never used for prediciton anyway
+        if md.seq and md.name not in ['TSn', 'TEn']:
             random_examples[md.name + '_ar'] = np.concatenate([np.zeros((len(idx),1, md.dim)), data[:,:-1]], axis=-2)
     return random_examples, idx
 
