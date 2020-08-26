@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'ntq-{sys.argv[2:]}')
-# ex = Experiment(f'32seq-no ar V')
+# ex = Experiment(f'ntq-{sys.argv[2:]}')
+ex = Experiment(f'pred-test DELETE')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -58,18 +58,18 @@ def train_config():
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 15
     vel_cutoff = 6
     data_folder_prefix = '_8'
 
     ##### Model Config ####
     ### general network params
-    hidden_state = 512
+    hidden_state = 800
     recurrent_dropout=0.0
 
     ### encoder params
     bi_encoder_lstms = 2
-    uni_encoder_lstms = 2
+    uni_encoder_lstms = 1
     conv = False
     ar_inputs = None
     # pitch_stride = 6
@@ -84,7 +84,7 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.3**(1/1500)
     min_lr = 0.00005
-    epochs = 1500
+    epochs = 2
     monitor = 'loss'
     loss_weights = None
     clipvalue = 1
@@ -284,18 +284,57 @@ def train_model(_run,
     # get some random examples from the validation data
     random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
 
-    pred = model.predict(random_examples)
-
+    ### predict teacher forced
+    pred_tf = model.predict(random_examples)
     # find axis that corresponds to velocity
     v_index = np.where(np.array(model.output_names) == 'Vn_out')[0][0]
     print('velocity index:', v_index)
-    model_datas_pred = copy.deepcopy(model_datas_val)
-    model_datas_pred['Vn'].data[idx,...] = np.array(pred)[v_index,...]
+    model_datas_pred_tf = copy.deepcopy(model_datas_val)
+    model_datas_pred_tf['Vn'].data[idx,...] = np.array(pred_tf)[v_index,...]
+
+    ### predict using model output autoregressively
+    model_kwargs.update({'stateful': True})
+    reqs_tf = models.create_nbq_bi_graph(model_input_reqs, model_output_reqs, **model_kwargs)
+
+    encoder = tf.keras.Model(inputs=reqs_tf['encoder_input'], outputs=reqs_tf['encoder_output'], name=f'encoder')
+    decoder = tf.keras.Model(inputs=reqs_tf['decoder_input'], outputs=reqs_tf['decoder_output'], name=f'decoder')
+
+
+    train_val_pred = {}
+    for weights in ['train', 'val']:
+        models.load_weights_safe(encoder, path + f'{no}_best_{weights}_weights.hdf5', by_name=True)
+        models.load_weights_safe(decoder, path + f'{no}_best_{weights}_weights.hdf5', by_name=True)
+
+        random_examples['encoded'] = encoder.predict(random_examples)
+        # initialise storage for predictions
+        pred = np.zeros((batch_size, seq_length))
+        # initialise first 'Vn_out' (autoregressive input, but for first step) 
+        Vn_out = np.zeros((batch_size,1,1))
+        for i in range(seq_length):
+            step_input = {'encoded': random_examples['encoded'][:,i,:][:,None,:], 'Vn_ar': Vn_out}
+            Vn_out = decoder.predict(step_input, batch_size=batch_size)
+            pred[:,i] = Vn_out.flatten()
+        train_val_pred[weights] = pred
+
+    model_datas_best_train_pred = copy.deepcopy(model_datas_val)
+    model_datas_best_train_pred['Vn'].data[idx,...] = train_val_pred['train'][...,None]
+    model_datas_best_val_pred = copy.deepcopy(model_datas_val)
+    model_datas_best_val_pred['Vn'].data[idx,...] = train_val_pred['val'][...,None]
+
     os.mkdir(path + 'midi/')
     for i in idx:
+        # create dictionary of data from model datas
         mds_orig = {md.name: md.data[i] for _, md in model_datas_val.items()}
-        mds_pred = {md.name: md.data[i] for _, md in model_datas_pred.items()}
+        mds_pred_train = {md.name: md.data[i] for _, md in model_datas_best_train_pred.items()}
+        mds_pred_val = {md.name: md.data[i] for _, md in model_datas_best_val_pred.items()}
+        mds_pred_tf = {md.name: md.data[i] for _, md in model_datas_pred_tf.items()}
+        # convert to PMs
         pm_original = data.nbq2pm(mds_orig)
-        pm_pred = data.nbq2pm(mds_pred)
+        pm_pred_train = data.nbq2pm(mds_pred_train)
+        pm_pred_val = data.nbq2pm(mds_pred_val)
+        pm_pred_tf = data.nbq2pm(mds_pred_tf)
+        # write to file
         pm_original.write(path + 'midi/' + f'ex{i}original.mid')
-        pm_pred.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')
+        pm_pred_train.write(path + 'midi/' + f'ex{i}prediction.mid')
+        pm_pred_val.write(path + 'midi/' + f'ex{i}prediction.mid')
+        pm_pred_tf.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')
