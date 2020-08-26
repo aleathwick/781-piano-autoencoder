@@ -286,11 +286,8 @@ def train_model(_run,
 
     ### predict teacher forced
     pred_tf = model.predict(random_examples)
-    # find axis that corresponds to velocity
-    v_index = np.where(np.array(model.output_names) == 'Vn_out')[0][0]
-    print('velocity index:', v_index)
     model_datas_pred_tf = copy.deepcopy(model_datas_val)
-    model_datas_pred_tf['Vn'].data[idx,...] = np.array(pred_tf)[v_index,...]
+    model_datas_pred_tf['Vn'].data[idx,...] = np.array(pred_tf)
 
     ### predict using model output autoregressively
     model_kwargs.update({'stateful': True})
