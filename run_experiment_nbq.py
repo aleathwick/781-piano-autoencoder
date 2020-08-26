@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-# ex = Experiment(f'ntq-{sys.argv[2:]}')
-ex = Experiment(f'pred-test DELETE')
+ex = Experiment(f'ntq-3layer-{sys.argv[2:]}')
+# ex = Experiment(f'pred-test DELETE')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -58,13 +58,13 @@ def train_config():
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = 15
+    nth_file = None
     vel_cutoff = 6
     data_folder_prefix = '_8'
 
     ##### Model Config ####
     ### general network params
-    hidden_state = 800
+    hidden_state = 400
     recurrent_dropout=0.0
 
     ### encoder params
@@ -84,8 +84,8 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.3**(1/1500)
     min_lr = 0.00005
-    epochs = 2
-    monitor = 'loss'
+    epochs = 1500
+    monitor = 'val_loss'
     loss_weights = None
     clipvalue = 1
     loss = 'mse'
@@ -178,7 +178,7 @@ def train_model(_run,
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
                                 monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
     # early stopping, if needed
-    callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=15))
+    callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=50))
     # log keras info to sacred
     callbacks.append(exp_utils.KerasInfoUpdater(_run))
     # learning rate scheduler
@@ -335,6 +335,6 @@ def train_model(_run,
         pm_pred_tf = data.nbq2pm(mds_pred_tf)
         # write to file
         pm_original.write(path + 'midi/' + f'ex{i}original.mid')
-        pm_pred_train.write(path + 'midi/' + f'ex{i}prediction.mid')
-        pm_pred_val.write(path + 'midi/' + f'ex{i}prediction.mid')
-        pm_pred_tf.write(path + 'midi/' + f'ex{i}prediction_teacher_forced.mid')
+        pm_pred_train.write(path + 'midi/' + f'ex{i}prediction_train_weights.mid')
+        pm_pred_val.write(path + 'midi/' + f'ex{i}prediction_val_weights.mid')
+        pm_pred_tf.write(path + 'midi/' + f'ex{i}prediction_teacher_forced_val_weights.mid')
