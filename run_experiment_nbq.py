@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'ntq-3layer-{sys.argv[2:]}')
-# ex = Experiment(f'pred-test DELETE')
+# ex = Experiment(f'ntq-OD-3layer-{sys.argv[2:]}')
+ex = Experiment(f'ntq-OD-3layer-tiny')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -42,7 +42,7 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 # last answer might fix it: https://stackoverflow.com/questions/57704771/inputs-to-eager-execution-function-cannot-be-keras-symbolic-tensors
 # the trick is for the step that defines the loss fnc to return a symbolic tensor, rather than returning another function which uses a symbolic tensor
 
-tf.compat.v1.disable_eager_execution()
+# tf.compat.v1.disable_eager_execution()
 
 # alternatively, could do something like this?
 # https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
@@ -50,22 +50,22 @@ tf.compat.v1.disable_eager_execution()
 @ex.config
 def train_config():
     # data params
-    model_inputs = ['Pn', 'TBn', 'TSBn']
+    model_inputs = ['PCn', 'PSn', 'TBn', 'TSBn']
     model_outputs = ['Vn']
     seq_length = 50
-    sub_beats = 2
+    sub_beats = 4
     example_bars_skip = 4
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = None
+    nth_file = 15
     vel_cutoff = 6
-    data_folder_prefix = '_8'
+    data_folder_prefix = ''
 
     ##### Model Config ####
     ### general network params
-    hidden_state = 400
-    recurrent_dropout=0.0
+    hidden_state = 3
+    recurrent_dropout=0.4
 
     ### encoder params
     bi_encoder_lstms = 2
@@ -84,7 +84,7 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.3**(1/1500)
     min_lr = 0.00005
-    epochs = 1500
+    epochs = 2
     monitor = 'val_loss'
     loss_weights = None
     clipvalue = 1
@@ -282,7 +282,11 @@ def train_model(_run,
     # load best weights
     models.load_weights_safe(model, path + f'{no}_best_val_weights.hdf5', by_name=False)
     # get some random examples from the validation data
-    random_examples, idx = data.n_rand_examples(model_datas_val, n=batch_size)
+    random_examples, idx = data.n_rand_examples(model_datas_val, n='all')
+    # update batch size
+    batch_size = len(idx)
+    model_kwargs.update({'batch_size': batch_size})
+
 
     ### predict teacher forced
     pred_tf = model.predict(random_examples)
@@ -291,6 +295,7 @@ def train_model(_run,
 
     ### predict using model output autoregressively
     model_kwargs.update({'stateful': True})
+    
     reqs_tf = models.create_nbq_bi_graph(model_input_reqs, model_output_reqs, **model_kwargs)
 
     encoder = tf.keras.Model(inputs=reqs_tf['encoder_input'], outputs=reqs_tf['encoder_output'], name=f'encoder')
@@ -304,7 +309,7 @@ def train_model(_run,
 
         random_examples['encoded'] = encoder.predict(random_examples)
         # initialise storage for predictions
-        pred = np.zeros((batch_size, seq_length))
+        pred = np.zeros((len(idx), seq_length))
         # initialise first 'Vn_out' (autoregressive input, but for first step) 
         Vn_out = np.zeros((batch_size,1,1))
         for i in range(seq_length):
