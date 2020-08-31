@@ -34,6 +34,12 @@ def normalize_tempo(tempo, inverse=False):
     else:
         return (tempo + 1) * 100
 
+def normalize_velocity(velocity, inverse=False):
+    if not inverse:
+        return velocity ** 0.6
+    if inverse:
+        return velocity ** 1/0.6
+
 def filepath2key(filepath):
     """takes a file path and returns key (relying on the filename convention I've used)"""
     return filepath.split('_')[-1].split('.')[0]
@@ -233,7 +239,9 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
     random_examples = {}
 
     # select n random examples
-    if n !=0 and n != None:
+    if n == 'all':
+        idx = list(range(len(list(model_datas.values())[0])))
+    elif n !=0 and n != None:
         idx = np.random.randint(0, len(list(model_datas.values())[0]), n)
     
     # add dummy variable (for conductor LSTM, if it exists)
@@ -250,6 +258,8 @@ def n_rand_examples(model_datas, n=10, idx=[0,45,70,100,125,150,155]):
         # TSn and TEn lack the extra dimension, but they're never used for prediciton anyway
         if md.seq and md.name not in ['TSn', 'TEn']:
             random_examples[md.name + '_ar'] = np.concatenate([np.zeros((len(idx),1, md.dim)), data[:,:-1]], axis=-2)
+    for k, v in random_examples.items():
+        print(k, v.shape)
     return random_examples, idx
 
 ######## ########
