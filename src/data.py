@@ -113,7 +113,7 @@ def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, 
 
     """
     
-    examples = {key: [] for key in ['TSn', 'TEn', 'TBn', 'TMn', 'TSBn', 'Pn', 'PSn', 'PCn', 'Vn', 'tempo', 'key', 'V_mean']}
+    examples = {key: [] for key in ['TSn', 'TEn', 'TBn', 'TMn', 'TSBn', 'Pn', 'PSn', 'PCn', 'Vn', 'LRn', 'tempo', 'key', 'V_mean']}
     files = [file for file in os.scandir(folder) if not file.is_dir()]
     if nth_file != None:
         files = [f for i, f in enumerate(files) if i % nth_file == 0]

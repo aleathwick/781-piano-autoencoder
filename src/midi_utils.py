@@ -376,7 +376,6 @@ def pm2notes_q(pm, sub_beats):
     """
     
     sub_beat_len = pm.get_beats()[1] / sub_beats
-    
     # don't want to edit the original pm object, so we make a copy of notes
     notes = copy.deepcopy(pm.instruments[0].notes)
     for note in notes:
@@ -394,6 +393,8 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
     
     Arguments:
     notes -- list of notes, note_bin_q style
+        that is, pm notes with velocity and start/end times representing nearest sub beat.
+        also with hand label (either 0 or 1)
     seq_length -- length of each example
     sub_beats -- number of sub beats per beat
     example_bars_skip -- examples start every example_skip bars
@@ -423,7 +424,8 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
                 'Pn': [], # pitches
                 'PSn': [], # pitch as continuous value in [0,1]
                 'PCn': [], # pitch class in [0,11]
-                'Vn': []} # velocities (in [0, 1])
+                'Vn': [], # velocities (in [0, 1])
+                'LRn': []} # left hand or right hand (in[0,1])
     
     
     # variable for starting sub beat of current example
@@ -448,6 +450,8 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
         # velocities
         # again, need extra dimension for LSTMs
         features['Vn'].append([[n.velocity] for n in notes[:seq_length]])
+
+        features['LRn'].append([[n.hand] for n in notes[:seq_length]])
         
         example_sub_beat_start += sub_beat_skip
         
@@ -494,8 +498,21 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
 
 def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_base_key=False):
     """given pm, return nbq format examples (dictionary of features for each example)"""
+    pm = copy.deepcopy(pm)
     desus(pm)
+    # add a hand attribute to pm note class
+    setattr(pretty_midi.Note, 'hand', 0)
+    if pm.instruments[0].name in ['LH', 'RH']:
+        for note in pm.instruments[1].notes:
+            # set note hand to 1 for all notes in second instrument note array
+            note.hand = 1
+        # pm2notes_q reads the first instrument's notes, so combine notes from both 'instruments' here
+        pm.instruments[0].notes = pm.instruments[0].notes + pm.instruments[1].notes
+        pm.instruments[0].sort(key=lambda x: x.start)
+    elif len(pm.instruments) > 1:
+        print('WARNING: more than one instrument in midi file, but instruments are not hands')
     notes = pm2notes_q(pm, sub_beats)
+    # if use_base_key, then transpose to C/Am
     if use_base_key and key != None:
         semitones = -key2int[key]
         if semitones < -6:

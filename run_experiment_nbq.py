@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-# ex = Experiment(f'ntq-OD-3layer-{sys.argv[2:]}')
-ex = Experiment(f'ntq-OD-3layer-tiny')
+ex = Experiment(f'ntq-OD-2layer-no_dropout-{sys.argv[2:]}')
+# ex = Experiment(f'ntq-OD-2layer-48-retry')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -58,17 +58,17 @@ def train_config():
     use_base_key = False
     transpose = False
     st = 0
-    nth_file = 15
+    nth_file = None
     vel_cutoff = 6
     data_folder_prefix = ''
 
     ##### Model Config ####
     ### general network params
-    hidden_state = 3
-    recurrent_dropout=0.4
+    hidden_state = 48
+    recurrent_dropout=0.0
 
     ### encoder params
-    bi_encoder_lstms = 2
+    bi_encoder_lstms = 1
     uni_encoder_lstms = 1
     conv = False
     ar_inputs = None
@@ -84,7 +84,7 @@ def train_config():
     lr = 0.001
     lr_decay_rate = 0.3**(1/1500)
     min_lr = 0.00005
-    epochs = 2
+    epochs = 1500
     monitor = 'val_loss'
     loss_weights = None
     clipvalue = 1
@@ -178,7 +178,7 @@ def train_model(_run,
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(path + f'{no}_best_val_weights.hdf5',
                                 monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True))
     # early stopping, if needed
-    callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=50))
+    callbacks.append(tf.keras.callbacks.EarlyStopping(monitor=monitor, min_delta=0, patience=120))
     # log keras info to sacred
     callbacks.append(exp_utils.KerasInfoUpdater(_run))
     # learning rate scheduler
@@ -245,13 +245,13 @@ def train_model(_run,
     if continue_run != None:
         model.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
     
-    try:
-        print('loaded weights:')
-        print(model.metrics_names)
-        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
-    except:
-        print('evaluation failed')
-        print(traceback.format_exc())
+        try:
+            print('loaded weights:')
+            print(model.metrics_names)
+            print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
+        except:
+            print('evaluation failed')
+            print(traceback.format_exc())
 
     history = model.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
