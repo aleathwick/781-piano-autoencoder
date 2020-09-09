@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.callbacks import LambdaCallback
 from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras import regularizers
 # import my modules
 import src.midi_utils as midi_utils
 import src.data as data
@@ -26,8 +27,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'ntq-OD-2layer-no_dropout-{sys.argv[2:]}')
-# ex = Experiment(f'ntq-OD-2layer-48-retry')
+# ex = Experiment(f'ntq-OD-2layer-no_dropout-PCnPSn-with_beats-{sys.argv[2:]}')
+ex = Experiment(f'ntq-OD-2layer-48-retry')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -50,7 +51,8 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 @ex.config
 def train_config():
     # data params
-    model_inputs = ['PCn', 'PSn', 'TBn', 'TSBn']
+    model_inputs = ['PSn', 'PCn', 'TBn', 'TSBn']
+    # model_inputs = ['PSn', 'PCn']
     model_outputs = ['Vn']
     seq_length = 50
     sub_beats = 4
@@ -66,6 +68,10 @@ def train_config():
     ### general network params
     hidden_state = 48
     recurrent_dropout=0.0
+    recurrent_l1 = 0.0
+    recurrent_l2 = 0.0
+    kernel_l1 = 0.0
+    kernel_l2 = 0.0
 
     ### encoder params
     bi_encoder_lstms = 1
@@ -90,13 +96,6 @@ def train_config():
     clipvalue = 1
     loss = 'mse'
     metrics = ['accuracy', 'mse']
-
-    # musicvae used 48 free bits for 2-bars, 256 for 16 bars (see https://arxiv.org/pdf/1803.05428.pdf)
-    # Variational specific parameters
-    max_beta = 3
-    beta_rate = 0.2**(1/1000) # at 1000 epochs, we want (1 - something) * max_beta
-    free_bits=0
-    kl_weight = 1
     
     #other
     continue_run = None
@@ -121,6 +120,11 @@ def train_model(_run,
                 # network params
                 hidden_state,
                 recurrent_dropout,
+                recurrent_l1,
+                recurrent_l2,
+                kernel_l1,
+                kernel_l2,
+
                 bi_encoder_lstms,
                 uni_encoder_lstms,
                 conv,
@@ -187,6 +191,9 @@ def train_model(_run,
     if log_tensorboard:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='experiments/tb/', histogram_freq = 1))
 
+    if recurrent_l1 != 0 or recurrent_l2 != 0 or kernel_l1 != 0 or kernel_l2 != 0:
+        kernel_regularizer = regularizers.l1_l2(l1=recurrent_l1, l2=recurrent_l2)
+        recurrent_regularizer = regularizers.l1_l2(l1=kernel_l1, l2=kernel_l2)
     # model kwargs - for the encoder/decoder builder functions, make a dictionary to pass as kwargs
     model_kwargs = {# general model parameters
                     'recurrent_dropout':recurrent_dropout,
@@ -202,6 +209,9 @@ def train_model(_run,
                     'ar_inc_batch_shape':ar_inc_batch_shape,
                     'conv':conv,
                     }
+    if recurrent_l1 != 0 or recurrent_l2 != 0 or kernel_l1 != 0 or kernel_l2 != 0:
+        model_kwargs['kernel_regularizer'] = regularizers.l1_l2(l1=recurrent_l1, l2=recurrent_l2)
+        model_kwargs['recurrent_regularizer'] = regularizers.l1_l2(l1=kernel_l1, l2=kernel_l2)
 
     inputs_tf, pred = models.create_nbq_bi_graph(model_input_reqs, model_output_reqs, **model_kwargs)
 

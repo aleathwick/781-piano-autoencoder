@@ -899,6 +899,8 @@ def create_nbq_bi_graph(model_input_reqs,
                         bi_lstm_layers = 3,  
                         hidden_state = 512,  
                         recurrent_dropout = 0.0,
+                        kernel_regularizer=None,
+                        recurrent_regularizer=None,
                         
                         ar_inputs=None,
                         uni_lstm_layers = 2,
@@ -936,7 +938,7 @@ def create_nbq_bi_graph(model_input_reqs,
 
     # pass through bidirectional lstms
     for i in range(bi_lstm_layers):
-        x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True,
+        x = layers.Bidirectional(layers.LSTM(hidden_state, return_sequences=True, kernel_regularizer=kernel_regularizer, recurrent_regularizer=recurrent_regularizer,
                                 recurrent_dropout=recurrent_dropout, name=f'enc_lstm_{i}'), name=f'bi_enc_lstm_{i}')(x)
     if stateful:
         encoder_out = x
@@ -974,8 +976,8 @@ def create_nbq_bi_graph(model_input_reqs,
     x = layers.concatenate(ar_inputs + [x], axis=-1)
     # pass input through non final lstm layers, returning sequences each time
     for i in range(uni_lstm_layers):
-        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout,
-                        stateful=stateful, name=f'uni_lstm_{i}')(x)
+        x = layers.LSTM(hidden_state, return_sequences=True, recurrent_dropout=recurrent_dropout, kernel_regularizer=kernel_regularizer,
+                        recurrent_regularizer=recurrent_regularizer, stateful=stateful, name=f'uni_lstm_{i}')(x)
 
     # predict outputs
     outputs = []
