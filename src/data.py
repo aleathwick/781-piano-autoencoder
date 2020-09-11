@@ -94,7 +94,7 @@ def folder2examples(folder, return_ModelData_object=True, sparse=True, beats_per
         examples['V_mean'] = ml_classes.ModelData(examples['V_mean'], 'V_mean', transposable=False)
     return examples, seconds
 
-def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, example_bars_skip=4, use_base_key=False, nth_file=None, vel_cutoff=4):
+def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, example_bars_skip=4, use_base_key=False, nth_file=None, nth_example=None, vel_cutoff=4):
     """Turn folder of midi files into examples for piano autoencoder
 
     Arguments:
@@ -122,7 +122,7 @@ def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, 
         midi_utils.filter_notes(pm, vel_cutoff)
         # get the key from the filename, assuming it is the last thing before the extension
         key = filepath2key(file.path)
-        file_examples = midi_utils.pm2nbq(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key)
+        file_examples = midi_utils.pm2nbq(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key, nth_example=nth_example)
         if file_examples != None:
             for key, data in file_examples.items():
                 examples[key].extend(data)

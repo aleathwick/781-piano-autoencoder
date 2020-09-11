@@ -388,7 +388,7 @@ def pm2notes_q(pm, sub_beats):
     
     return notes
 
-def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4, key=0):
+def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4, key=0, nth_example=None):
     """takes note_bin_q and returns examples of specified length
     
     Arguments:
@@ -408,11 +408,13 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
     four bars is around 50 notes, for the _8 dataset.
     
     """
-    
+
     # assuming that there are 4 beats to a bar!!!
     notes.sort(key = lambda note: note.start)
     # number of sub beats to skip forward by to get start of next example
-    sub_beat_skip = example_bars_skip * 4 * sub_beats
+    if nth_example == None:
+        nth_example = 1
+    sub_beat_skip = example_bars_skip * 4 * sub_beats * nth_example
     
     # n prefix indicates it is by note - not by sub beat, as in HOV format
     features = {'TSn': [], # starts, in sub beats (of whole example)
@@ -496,7 +498,7 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
 
     return features
 
-def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_base_key=False):
+def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_base_key=False, nth_example=None):
     """given pm, return nbq format examples (dictionary of features for each example)"""
     pm = copy.deepcopy(pm)
     desus(pm)
@@ -523,7 +525,7 @@ def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_bas
         print('Warning: no key provided, but use base key set to True. Unable to transpose.')
         key=int2key[0]
     # include the pm, so that 
-    nbq = notes_q2nbq(notes, pm, key=key, sub_beats=sub_beats, seq_length=seq_length)
+    nbq = notes_q2nbq(notes, pm, key=key, sub_beats=sub_beats, seq_length=seq_length, nth_example=nth_example)
     return nbq
 
 

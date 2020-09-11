@@ -27,8 +27,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-# ex = Experiment(f'ntq-OD-2layer-no_dropout-PCnPSn-with_beats-{sys.argv[2:]}')
-ex = Experiment(f'ntq-OD-2layer-48-retry')
+# ex = Experiment(f'ntq-OD-2layer-{sys.argv[2:]}')
+ex = Experiment(f'ntq-OD-2layer-24-pn+pcn')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -51,7 +51,7 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 @ex.config
 def train_config():
     # data params
-    model_inputs = ['PSn', 'PCn', 'TBn', 'TSBn']
+    model_inputs = ['Pn', 'PCn', 'TBn', 'TSBn']
     # model_inputs = ['PSn', 'PCn']
     model_outputs = ['Vn']
     seq_length = 50
@@ -61,13 +61,14 @@ def train_config():
     transpose = False
     st = 0
     nth_file = None
+    nth_example = None
     vel_cutoff = 6
     data_folder_prefix = ''
 
     ##### Model Config ####
     ### general network params
-    hidden_state = 48
-    recurrent_dropout=0.0
+    hidden_state = 24
+    recurrent_dropout=0.4
     recurrent_l1 = 0.0
     recurrent_l2 = 0.0
     kernel_l1 = 0.0
@@ -114,6 +115,7 @@ def train_model(_run,
                 transpose,
                 st,
                 nth_file,
+                nth_example,
                 vel_cutoff,
                 data_folder_prefix,
                 
@@ -161,7 +163,8 @@ def train_model(_run,
                                             example_bars_skip=example_bars_skip, 
                                             use_base_key=use_base_key, 
                                             nth_file=nth_file, 
-                                            vel_cutoff=vel_cutoff)
+                                            vel_cutoff=vel_cutoff,
+                                            nth_example=nth_example)
     _run.info['seconds_train_data'] = seconds
     model_datas_val, seconds = data.folder2nbq('training_data/midi_val' + data_folder_prefix, 
                                             return_ModelData_object=True,
