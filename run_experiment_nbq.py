@@ -28,7 +28,7 @@ import src.losses as losses
 from sacred import Experiment
 from sacred.observers import MongoObserver
 # ex = Experiment(f'ntq-OD-2layer-{sys.argv[2:]}')
-ex = Experiment(f'ntq-OD-2layer-24-pn+pcn')
+ex = Experiment(f'ntq-OD-2layer-24-pn+psn')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -51,7 +51,7 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 @ex.config
 def train_config():
     # data params
-    model_inputs = ['Pn', 'PCn', 'TBn', 'TSBn']
+    model_inputs = ['Pn', 'PSn', 'TBn', 'TSBn']
     # model_inputs = ['PSn', 'PCn']
     model_outputs = ['Vn']
     seq_length = 50
@@ -344,10 +344,10 @@ def train_model(_run,
         mds_pred_val = {md.name: md.data[i] for _, md in model_datas_best_val_pred.items()}
         mds_pred_tf = {md.name: md.data[i] for _, md in model_datas_pred_tf.items()}
         # convert to PMs
-        pm_original = data.nbq2pm(mds_orig)
-        pm_pred_train = data.nbq2pm(mds_pred_train)
-        pm_pred_val = data.nbq2pm(mds_pred_val)
-        pm_pred_tf = data.nbq2pm(mds_pred_tf)
+        pm_original = data.nbq2pm(mds_orig, sub_beats=sub_beats)
+        pm_pred_train = data.nbq2pm(mds_pred_train, sub_beats=sub_beats)
+        pm_pred_val = data.nbq2pm(mds_pred_val, sub_beats=sub_beats)
+        pm_pred_tf = data.nbq2pm(mds_pred_tf, sub_beats=sub_beats)
         # write to file
         pm_original.write(path + 'midi/' + f'ex{i}original.mid')
         pm_pred_train.write(path + 'midi/' + f'ex{i}prediction_train_weights.mid')
