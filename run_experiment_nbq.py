@@ -27,36 +27,26 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-# ex = Experiment(f'ntq-OD-2layer-{sys.argv[2:]}')
-ex = Experiment(f'ntq-OD-2layer-24-pn+psn')
+# ex = Experiment(f'ntq-100_seq--{sys.argv[2:]}')
+ex = Experiment(f'ntq-100_seq-with_key')
+# 
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
-
 # ex.captured_out_filter = lambda captured_output: "Output capturing turned off."
-
 from sacred.utils import apply_backspaces_and_linefeeds
 ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 
-# seem to need this to use my custom loss function, see here: https://github.com/tensorflow/tensorflow/issues/34944
-# last answer might fix it: https://stackoverflow.com/questions/57704771/inputs-to-eager-execution-function-cannot-be-keras-symbolic-tensors
-# the trick is for the step that defines the loss fnc to return a symbolic tensor, rather than returning another function which uses a symbolic tensor
-
-# tf.compat.v1.disable_eager_execution()
-
-# alternatively, could do something like this?
-# https://github.com/Douboo/tf_env_debug/blob/master/custom_layers_and_model_subclassing_API.ipynb
-
 @ex.config
 def train_config():
     # data params
-    model_inputs = ['Pn', 'PSn', 'TBn', 'TSBn']
+    model_inputs = ['PCn', 'PSn', 'TBn', 'TSBn', 'key']
     # model_inputs = ['PSn', 'PCn']
     model_outputs = ['Vn']
-    seq_length = 50
+    seq_length = 100
     sub_beats = 4
-    example_bars_skip = 4
+    example_bars_skip = 2
     use_base_key = False
     transpose = False
     st = 0
@@ -79,19 +69,15 @@ def train_config():
     uni_encoder_lstms = 1
     conv = False
     ar_inputs = None
-    # pitch_stride = 6
-    # conv = {'F_n': [32, 32, 48, 48, 48, 24], # number of filters
-    #         'F_s': [(8,12), (4,4), (4,4), (4,4), (4,4), (4,4)], # size of filters
-    #         'strides': [(1, pitch_stride), (1, 1), (2, 1), (2,1), (2,1), (2,2)],  # strides
-    #         'batch_norm': True # apply batch norm after each conv operation (after activation)
-    #         }
 
     ##### Training Config ####
     batch_size = 64
     lr = 0.001
     lr_decay_rate = 0.3**(1/1500)
+    # lr_decay_rate = 0.999899673965966
     min_lr = 0.00005
     epochs = 1500
+    # epochs = 12000
     monitor = 'val_loss'
     loss_weights = None
     clipvalue = 1
@@ -247,35 +233,12 @@ def train_model(_run,
     
     model.compile(optimizer=opt, loss=loss, metrics=metrics, loss_weights=loss_weights)
 
-    try:
-        print('freshly initialized:')
-        print(model.metrics_names)
-        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
-    except:
-        print('evaluation failed')
-        print(traceback.format_exc())
-
     if continue_run != None:
         model.load_weights(f'experiments/run_{continue_run}/{continue_run}_best_train_weights.hdf5')
     
-        try:
-            print('loaded weights:')
-            print(model.metrics_names)
-            print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
-        except:
-            print('evaluation failed')
-            print(traceback.format_exc())
 
     history = model.fit(dg, validation_data=dg_val, epochs=epochs, callbacks=callbacks, verbose=2)
 
-    # attempt to evaluate the model
-    try:
-        print('freshly trained:')
-        print(model.metrics_names)
-        print(model.evaluate(dg_val.__getitem__(0)[0], dg_val.__getitem__(0)[1], batch_size=batch_size))
-    except:
-        print('evaluation failed')
-        print(traceback.format_exc())
 
     # save the model history
     with open(f'{path}history-{epochs}epochs.json', 'w') as f:

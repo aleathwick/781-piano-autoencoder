@@ -26,8 +26,8 @@ import src.losses as losses
 
 from sacred import Experiment
 from sacred.observers import MongoObserver
-ex = Experiment(f'32seq-cce-{sys.argv[2:]}')
-# ex = Experiment(f'32seq-no ar V')
+# ex = Experiment(f'32seq-cce-{sys.argv[2:]}')
+ex = Experiment(f'32seq-note_mse')
 ex.observers.append(MongoObserver(db_name='sacred'))
 
 ### take care of output
@@ -59,7 +59,7 @@ def train_config():
     st = 0
     nth_file = None
     vel_cutoff = 4
-    V_no_zeros = True # should velocity matrix have zeros or average velocity?
+    V_no_zeros = False # should velocity matrix have zeros or average velocity?
     # V_rigged = False # should the autoregressive output velocity be... RIGGED? i.e. all = V_mean
     data_folder_prefix = '_8'
 
@@ -107,7 +107,7 @@ def train_config():
     monitor = 'loss'
     loss_weights = [1, 10000]
     clipvalue = 1
-    loss = [losses.vae_custom_loss, 'categorical_crossentropy']
+    loss = [losses.vae_custom_loss, losses.note_mse]
     # loss = 'categorical_crossentropy'
     metrics = ['accuracy', 'categorical_crossentropy', 'mse']
 
