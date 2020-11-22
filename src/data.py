@@ -1,5 +1,7 @@
 import pretty_midi
 from tqdm import tqdm
+import pymongo
+import gridfs
 import numpy as np
 import pandas as pd
 import os
@@ -12,6 +14,10 @@ from collections import namedtuple
 from scipy.sparse import csc_matrix
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
+from IPython.display import clear_output
+from ipywidgets import interact, interactive, fixed, interact_manual
+import ipywidgets as widgets
+import matplotlib.pyplot as plt
 
 
 def stretch(pm, speed):
@@ -120,16 +126,18 @@ def folder2nbq(folder, return_ModelData_object=True,seq_length=50, sub_beats=2, 
     for file in tqdm(files):
         pm = pretty_midi.PrettyMIDI(file.path)
         midi_utils.filter_notes(pm, vel_cutoff)
-        # get the key from the filename, assuming it is the last thing before the extension
-        key = filepath2key(file.path)
-        file_examples = midi_utils.pm2nbq(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key, nth_example=nth_example)
-        if file_examples != None:
-            for key, data in file_examples.items():
-                examples[key].extend(data)
+        if len(pm.instruments[0].notes) >= seq_length:
+            # get the key from the filename, assuming it is the last thing before the extension
+            key = filepath2key(file.path)
+            file_examples = midi_utils.pm2nbq(pm, seq_length=seq_length, sub_beats=sub_beats, example_bars_skip=example_bars_skip, key=key, use_base_key=use_base_key, nth_example=nth_example)
+            if file_examples != None:
+                for key, data in file_examples.items():
+                    examples[key].extend(data)
 
     # check out how much training data there is
     mean_bpm = np.mean(normalize_tempo(np.array(examples['tempo']), inverse=True))
     unique_beats_per_example = example_bars_skip * 4
+    print(mean_bpm, unique_beats_per_example, len(examples['TSn']))
     seconds = 60 / mean_bpm * unique_beats_per_example * len(examples['TSn'])
     time.strftime('%Hh %Mm %Ss', time.gmtime(seconds))
     print(time.strftime('%Hh %Mm %Ss', time.gmtime(seconds)), 'of data')
@@ -310,3 +318,194 @@ def sizeof_fmt(num, suffix='B'):
             return "%3.1f%s%s" % (num, unit, suffix)
         num /= 1024.0
     return "%.1f%s%s" % (num, 'Yi', suffix)
+
+
+
+
+######## Plotting sacred runs ##########
+def plot_sacred_runs(id_list, x, split=None, parameter_is_list=False, index_of_interest=-1, return_df=False, plot_params={}):
+    """retrieves and plots runs from sacred mongodb
+    
+    Arguments:
+    id_list -- list of run ids
+    x -- hyperparameter of interest
+    split -- config hyperparameter to split plotting by (multiple lines on same plot)
+    parameter_is_list -- specific case where a hyperparameter may be a list
+    index_of_interest -- if hyperapameter of interest is a list, which index of list do we care about?
+    
+    """
+    # establish connection to database
+    client = pymongo.MongoClient()
+    fs = gridfs.GridFS(client.sacred)
+    runs = client.sacred.runs
+    metrics = client.sacred.metrics
+
+    # determine which runs are needed
+    run_entries = list(runs.find({'_id': {'$in': id_list}}))
+    # metric_ids = {m['name']: ObjectId(m['id']) for m in run_entry['info']['metrics']}
+    df = pd.DataFrame()
+
+    # What is the hyperparameter of interst? (x axis)
+    df[x] = [run['config'][x] for run in run_entries]
+    # change index to reflect run id
+    df.index = [run['_id'] for run in run_entries]
+
+    if parameter_is_list:
+        df[x] = df[x].apply(lambda x: x[index_of_interest])
+
+    # stats where minimum is best, or maximum is best
+    min_stats = [k for k in run_entries[0]['info']['logs'].keys() if any(x in k for x in ['categ', 'loss', 'mse'])]
+    max_stats = [k for k in run_entries[0]['info']['logs'].keys() if any(x in k for x in ['acc'])]
+
+    for stat in min_stats:
+    #     df[stat] = [min([step['value'] for step in run['info']['logs'][stat]]) for run in run_entries]
+        # for some inexplicable reason, sometimes the entry is a list of values, rather than a list of dictionaries with dtype recorded
+        df[stat] = [min([step['value'] for step in run['info']['logs'][stat]]) if isinstance(run['info']['logs'][stat][-1], dict) else min(run['info']['logs'][stat]) for run in run_entries]
+    for stat in max_stats:
+        df[stat] =[max([step['value'] for step in run['info']['logs'][stat]]) if isinstance(run['info']['logs'][stat][-1], dict) else max(run['info']['logs'][stat]) for run in run_entries]
+    if split != None:
+        df[split] = [str(run['config'].get(split)) for run in run_entries]
+    # how many epochs did training run for? Early stopping might have kicked in.
+    df['epochs'] = [len(run['info']['logs'][max_stats[0]]) for run in run_entries]
+    
+    ### simple checkbox gui
+    # one checkbox per metric
+    checkboxes = [widgets.Checkbox(description=col,) for col in df.columns if col != x]
+    # plot button
+    plot_button = widgets.Button(description='Plot',button_style='success')
+    # button_style one of 'success', 'info', 'warning', 'danger' or ''
+    log_buttons = [widgets.ToggleButton(description=f'log {i} axis', button_style='info') for i in ['x', 'y']]
+    save_button = widgets.Button(description=f'save', button_style='warning')
+    
+    # output of plotting
+    out = widgets.Output()
+    def on_button_click(_, save=False):
+        """function for plotting ticked metrics on button click"""
+        with out:
+            # don't neglect to clear the output!
+            if not save:
+                clear_output()
+            plt.figure(figsize=plot_params.get('figsize', None))
+            # get metrics that have been ticked
+            plot_metrics = [c.description for c in checkboxes if c.value]
+            if split != None:
+                split_values = df[split].unique()
+                plot_dfs = [df[df[split] == s] for s in split_values]
+            else:
+                plot_dfs = [df]
+            for pdf in plot_dfs:
+                for m in plot_metrics:
+                    plt.plot(pdf.sort_values(x)[x], pdf.sort_values(x)[m], marker='o')
+                if log_buttons[0].value:
+                    plt.xscale('log')
+                if log_buttons[1].value:
+                    plt.yscale('log')
+                # sort and print run numbers according to order they appear in plot
+                print([run for _, run in sorted(zip(pdf[x], pdf.index))])
+            if split != None:
+                plt.legend([s.replace('_', ' ') for s in split_values], loc= 'best')
+            else:
+                plt.legend(plot_metrics, loc='best')
+            plt.title(plot_params.get('title',plot_metrics))
+            plt.xlabel(plot_params.get('xlabel', x.replace('_', ' ')))
+            plt.ylabel(plot_params.get('ylabel', 'value'))
+            labels = df.index
+            if save:
+                plt.savefig('plots/' + plot_params.get('title',str(plot_metrics)), bbox_inches = "tight", dpi=200)
+            else:
+                plt.show()
+    # linking button and function together using a button's method
+    plot_button.on_click(on_button_click)
+    # displaying button and its output together
+    display(widgets.VBox(checkboxes + log_buttons + [save_button, plot_button,out]))
+    save_button.on_click(lambda x: on_button_click(x, save=True))
+    if return_df:
+        return df
+
+
+def plot_sacred_training(id_list, x=None, epoch_lim = 10000, parameter_is_list=False, index_of_interest=-1, return_df=False, plot_params={}):
+    """retrieves and plots runs from sacred mongodb
+    
+    Arguments:
+    id_list -- list of run ids
+    x -- hyperparameter of interest
+    split -- config hyperparameter to split plotting by (multiple lines on same plot)
+    parameter_is_list -- specific case where a hyperparameter may be a list
+    index_of_interest -- if hyperapameter of interest is a list, which index of list do we care about?
+    
+    """
+    # establish connection to database
+    client = pymongo.MongoClient()
+    fs = gridfs.GridFS(client.sacred)
+    runs = client.sacred.runs
+    metrics = client.sacred.metrics
+
+    # determine which runs are needed
+    run_entries = list(runs.find({'_id': {'$in': id_list}}))
+    # metric_ids = {m['name']: ObjectId(m['id']) for m in run_entry['info']['metrics']}
+    df = pd.DataFrame()
+    
+    if x != None:
+        # What is the hyperparameter of interst? (labels)
+        df[x] = [run['config'][x] for run in run_entries]
+    
+    stats = [k for k in run_entries[0]['info']['logs'].keys() if any(x in k for x in ['categ', 'loss', 'mse', 'acc'])]
+    for stat in stats:
+        df[stat] = [[step['value'] for step in run['info']['logs'][stat]] if isinstance(run['info']['logs'][stat][-1], dict) else run['info']['logs'][stat] for run in run_entries]
+    
+    df.index = [run['_id'] for run in run_entries]
+    ### simple checkbox gui
+    # one checkbox per metric
+    checkboxes = [widgets.Checkbox(description=col,) for col in df.columns if col != x]
+    # plot button
+    plot_button = widgets.Button(description='Plot',button_style='success')
+    # button_style one of 'success', 'info', 'warning', 'danger' or ''
+    log_buttons = [widgets.ToggleButton(description=f'log {i} axis', button_style='info') for i in ['x', 'y']]
+    save_button = widgets.Button(description=f'save', button_style='warning')
+    # output of plotting
+    out = widgets.Output()
+    def on_button_click(_, save=False):
+        """function for plotting ticked metrics on button click"""
+        with out:
+            # don't neglect to clear the output!
+            if not save:
+                clear_output()
+            plt.figure(figsize=plot_params.get('figsize', None))
+            # get metrics that have been ticked
+            plot_metrics = [c.description for c in checkboxes if c.value]
+            legend_values = []
+            for index, row in df.iterrows():
+                for m in plot_metrics:
+                    plt.plot([i for i in range(len(row[m][:epoch_lim]))], row[m][:epoch_lim])
+                    metric = 'train ' + m if m[:3] != 'val' else m.replace('_', ' ')
+                    if x != None:
+                        x_string = x.replace('_', ' ')
+                        legend_values.append(f'run {index}, {metric}, {x_string} {row[x]}')
+                    else:
+                        legend_values.append(f'run {index}, {metric}')
+                if log_buttons[0].value:
+                    plt.xscale('log')
+                if log_buttons[1].value:
+                    plt.yscale('log')
+                # sort and print run numbers according to order they appear in plot
+#                 print([run for _, run in sorted(zip(pdf[x], pdf.index))])
+            plt.legend(legend_values, loc='best')
+            plt.title(plot_params.get('title',plot_metrics))
+            plt.xlim(plot_params.get('xlim', None))
+            plt.ylim(plot_params.get('ylim', None))
+            plt.xlabel(plot_params.get('xlabel', 'epoch'))
+            plt.ylabel(plot_params.get('ylabel', 'value'))
+            labels = df.index
+            if save:
+                plt.savefig('plots/' + plot_params.get('title',str(plot_metrics)), bbox_inches = "tight", dpi=200)
+            else:
+                plt.show()
+                
+    # linking button and function together using a button's method
+    plot_button.on_click(on_button_click)
+    save_button.on_click(lambda x: on_button_click(x, save=True))
+    # displaying button and its output together
+    display(widgets.VBox(checkboxes + log_buttons + [save_button, plot_button,out]))
+    if return_df:
+        return df
+
