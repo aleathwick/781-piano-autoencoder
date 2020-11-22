@@ -2,7 +2,7 @@ import numpy as np
 from scipy.sparse import csc_matrix
 import src.midi_utils as midi_utils
 import tensorflow as tf
- 
+
 
 class ModelData():
     def __init__(self, data, name, transposable, seq=False):
@@ -42,12 +42,14 @@ class ModelData():
                 self.batch_data[i] = self.data[index]
 
     def transpose(self, index, semitones):
+        """transpose upwards a number of semitones - assumes pitch is one hot encoded"""
         if not self.transposable:
             pass
         else:
             self.batch_data = np.concatenate((self.batch_data[...,-semitones:], self.batch_data[...,:-semitones]), axis=-1)
     
     def __len__(self):
+        """length is the number of training examples"""
         return len(self.data)
         
 

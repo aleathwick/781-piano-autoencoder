@@ -31,7 +31,7 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=2, seq_length=50, **kw
     # md - refers to whether or not an md object is normally supplied to the data generator
     # ohe - is this input one hot encoded? 
     model_input = namedtuple('input', 'name dim seq md ohe transposable') 
-    model_output = namedtuple('output', 'name dim activation seq md ohe transposable') 
+    model_output = namedtuple('output', 'name dim activation seq md ohe transposable')
 
     # model input requirements
     model_input_reqs_unfiltered = [
@@ -45,11 +45,12 @@ def get_model_reqs(model_inputs, model_outputs, sub_beats=2, seq_length=50, **kw
 
                                 ### nbq inputs
                                 # TSn and TEn should really be ohe, but max sub beat is not determined ahead of time...
+                                # same for TMn
                                 # could remedy this by taking sub beat mod 64, or something like that
                                 model_input('TSn', 1, True, True, ohe=False, transposable=False), # note starts in sub beats
                                 model_input('TEn', 1, True, True, ohe=False, transposable=False), # note ends in sub beats
                                 model_input('TBn', 4, True, True, ohe=True, transposable=False), # note starts in beats of bar 
-                                model_input('TMn', 16, True, True, ohe=True, transposable=False), # note starts in beats of bar 
+                                model_input('TMn', 1, True, True, ohe=False, transposable=False), # note starts in measure number
                                 model_input('TSBn', sub_beats, True, True, ohe=True, transposable=False), # note starts in sub beats of beat
                                 model_input('Pn', n_notes, True, True, ohe=True, transposable=True), # pitch
                                 model_input('PSn', 1, True, True, ohe=False, transposable=False), # pitch as continuous value

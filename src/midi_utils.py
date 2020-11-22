@@ -364,17 +364,18 @@ def pm2example(pm, key, beats_per_ex = 16, sub_beats = 4, sparse=True, use_base_
 
 
 def pm2notes_q(pm, sub_beats):
-    """like note bin, but quantized version
+    """get the list of notes in pm object ready for use in NBC training data
     
     Arguments:
     pm -- pretty midi object
     sub_beats -- number of sub beats per beat
     
     Returns:
-    notes -- list of pm note objects, but with pitch in [0,87], velocity in [0,1], and start expressed as closest sub_beat number
+    notes -- list of pm note objects, but with pitch in [0,87], velocity in [0,1], and start/end
+            expressed as closest sub_beat number
     
     """
-    
+    # grid resolution
     sub_beat_len = pm.get_beats()[1] / sub_beats
     # don't want to edit the original pm object, so we make a copy of notes
     notes = copy.deepcopy(pm.instruments[0].notes)
@@ -383,9 +384,7 @@ def pm2notes_q(pm, sub_beats):
         note.start = int(round(note.start / sub_beat_len))
         note.end = int(round(note.end / sub_beat_len))
         note.velocity = note.velocity / 127
-    # rewrite note information for pm object. Need pitches and velocities in [0,1], and note starts expressed in nearest sub beat number
-#     notes = [[midi_utils.pitchM2pitchB(note.pitch), round(note.start / sub_beat_len), note.velocity / 127] for note in pm.instruments[0].notes]
-    
+
     return notes
 
 def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4, key=0, nth_example=None):
@@ -395,10 +394,13 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
     notes -- list of notes, note_bin_q style
         that is, pm notes with velocity and start/end times representing nearest sub beat.
         also with hand label (either 0 or 1)
+    pm -- pretty midi object
     seq_length -- length of each example
     sub_beats -- number of sub beats per beat
     example_bars_skip -- examples start every example_skip bars
-    
+    key -- key of data in integer format
+    nth_example -- take only every nth musical example
+
     Returns:
     Dictionary containing various information for each note of each training example.
     See comments in code for details. 
@@ -409,11 +411,13 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
     
     """
 
-    # assuming that there are 4 beats to a bar!!!
+    # normally pm notes are ordered by note end
     notes.sort(key = lambda note: note.start)
+
     # number of sub beats to skip forward by to get start of next example
     if nth_example == None:
         nth_example = 1
+    
     sub_beat_skip = example_bars_skip * 4 * sub_beats * nth_example
     
     # n prefix indicates it is by note - not by sub beat, as in HOV format
@@ -500,8 +504,10 @@ def notes_q2nbq(notes, pm=None, seq_length=60, sub_beats=2, example_bars_skip=4,
 
 def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_base_key=False, nth_example=None):
     """given pm, return nbq format examples (dictionary of features for each example)"""
+    # don't want this in place
     pm = copy.deepcopy(pm)
     desus(pm)
+    
     # add a hand attribute to pm note class
     setattr(pretty_midi.Note, 'hand', 0)
     if pm.instruments[0].name in ['LH', 'RH']:
@@ -513,7 +519,10 @@ def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_bas
         pm.instruments[0].sort(key=lambda x: x.start)
     elif len(pm.instruments) > 1:
         print('WARNING: more than one instrument in midi file, but instruments are not hands')
+    
+    # convert note information
     notes = pm2notes_q(pm, sub_beats)
+
     # if use_base_key, then transpose to C/Am
     if use_base_key and key != None:
         semitones = -key2int[key]
@@ -524,6 +533,7 @@ def pm2nbq(pm, seq_length=60, sub_beats=2, example_bars_skip=4, key='C', use_bas
     elif use_base_key and key == None:
         print('Warning: no key provided, but use base key set to True. Unable to transpose.')
         key=int2key[0]
+    
     # include the pm, so that 
     nbq = notes_q2nbq(notes, pm, key=key, sub_beats=sub_beats, seq_length=seq_length, nth_example=nth_example)
     return nbq
