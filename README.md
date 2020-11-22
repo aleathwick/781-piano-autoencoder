@@ -18,4 +18,12 @@ This repository contains:
 ### Midi files (datasets)
 Midi files are recorded and then placed in `training_data/midi_train/`. Midi files are manipulated using the [pretty midi package](https://github.com/craffel/pretty-midi), which itself uses [Mido](https://github.com/mido/mido). Mido is lower level, and represents all midi events using relative timings, i.e. time since last midi event. Pretty midi stores things using their absolute time in seconds.
 
-Filenames are formatted as follows: in `as_79_D.mid`, `as` is a counter (aa, ab, ac, ad, etc...) that gives every file a unique ID. `79` indicates the tempo in beats per minute, and `D` indicates the key of the piece (24 possible keys, an `m` suffix indicates the key is a minor key. No `m` suffix indicates a major key).  
+Filenames are formatted as follows: in `as_79_D.mid`, `as` is a counter (aa, ab, ac, ad, etc...) that gives every file a unique ID. `79` indicates the tempo in beats per minute, and `D` indicates the key of the piece (24 possible keys, an `m` suffix indicates the key is a minor key. No `m` suffix indicates a major key).
+
+### Dissertation
+To give an idea of my work, here is the title and abstract from my dissertation.
+
+#### Humanizing Piano Sequences Using Deep Learning: Inverse Sequence Transformations and Representations
+
+Previous work in humanizing piano scores using machine learning has been hampered by a lack of appropriate datasets, which stems from the difficulty of extracting music score like information from the raw note timing and velocity information of piano performances. Gillick et al. (2019) generate training data for the equivalent drumming task by recording drummers playing in time with aural beat cues, enabling the recovery of rhythmic score information. This work extends this technique to piano music, posing the non-trivial humanization task as the inverse of a ‘dehumanization’ transform that is trivial to compute when the times of beats are known, and explores different ways of representing music data as inputs to deep learning models. Results clearly show that small RNN-LSTM models (< 50,000 parameters) are capable of predicting highly convincing note velocities for piano sequences in popular contemporary music styles. The choice of representation affected training stability and model performance, proving especially critical in low data situations; I propose a new representation that factors pitch into pitch class and a continuous variable representing pitch height.
+
