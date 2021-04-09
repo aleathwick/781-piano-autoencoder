@@ -1,6 +1,15 @@
 # 781-piano-autoencoder
 This project contains material related to my BSc Honours project, including code, models, and audio/MIDI predictions from deep learning models trained to humanize piano music.
 
+### Audio Examples
+Audio examples of piano music humanized by the models from this project can be found [here on soundcloud][https://soundcloud.com/user-611170338/sets/deep-learning-and-music-humanizing-piano-scores-longer-examples].  
+There is also a folder called 'audio_examples' in this repository. These files have names that end with one of the following:  
+* `No Humanization`: indicates there no human expression in the example, i.e. velocity = 64 for all notes.
+* `prediction_val_weights`: indicates velocities were predicted by a model using its best weights as measured by validation loss
+* `prediction_train_weights`: indicates velocities were predicted by a model using its best weights as measured by training loss
+* `original`: indicates the velocities of notes come from the original pianist (me)
+File names contain a prefix 'ex***' which denotes the specific musical example in question.
+
 ### Inspiration: GrooVAE
 The inspiration for this project is [Google's GrooVAE class of models](https://magenta.tensorflow.org/groovae), in particular, the methods they used for collating a dataset appropriate for training models to humanize drum sequences, where humanizing involves predicting velocities (how hard each note is struck) and timing offsets (time offset in ms to absolute time of beat or sub-beat for each note). Previous work in humanizing piano music has suffered from the difficulty of obtaining appropriate datasets, in which note-wise velocity and timing information from human performances can be matched to each note in music scores. The authors of GrooVAE found an elegant solution, which was to record drummers (in MIDI format) playing to a metronome; timestamps of notes and beats can then be compared, and notes assigned to the closes beat or 'sub-beat', allowing a score to be 'extracted' from the recordings. I recorded more than 20 hours of piano data using using this method, across two datasets (which I call *d1* and *d2*). In an effort to make the learning task easier, the second of these is very restricted in the textures and styles of playing allowed. I aimed to predict velocities in piano playing, initially using variational autoencoders, as found in GrooVAE; this failed, but a simple stacked LSTM model performed very well, capturing short term human-like expression very well. Long term expression (capturing more distant dependencies) has much room for improvement.
 
