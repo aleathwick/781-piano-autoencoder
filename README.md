@@ -3,7 +3,7 @@ This project contains code, trained models, and audio examples from models train
 
 ### Audio Examples
 Audio examples of piano music humanized by the models from this project can be found [here on soundcloud](https://soundcloud.com/user-611170338/sets/deep-learning-and-music-humanizing-piano-scores-longer-examples).  
-There is also a folder called 'audio_examples' in this repository. File names contain a prefix `ex***` which denotes the specific musical example in question. Files also have suffixes as follows:  
+There is also a folder called 'audio_examples' in this repository. File names contain a prefix `ex***` which denotes the specific musical example in question. File names also have suffixes as follows:  
 * `No Humanization`: indicates there is no human expression in the example, i.e. velocity = 64 for all notes.
 * `prediction_val_weights`: indicates velocities were predicted by a model using its best weights as measured by validation loss
 * `prediction_train_weights`: indicates velocities were predicted by a model using its best weights as measured by training loss
