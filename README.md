@@ -1,5 +1,5 @@
 # 781-piano-autoencoder
-This project contains material related to my BSc Honours project, including code, models, and audio/MIDI predictions from deep learning models trained to humanize piano music.
+This project contains code, trained models, and audio examples from models trained to humanize piano music in light pop / blues / jazz genres. Humanization here means the prediction of velocities (how loud each note is). Future work may expand this scope to capturing temporal expression. The experiments were part of my BSc Honours project, completed in 2020.
 
 ### Audio Examples
 Audio examples of piano music humanized by the models from this project can be found [here on soundcloud][https://soundcloud.com/user-611170338/sets/deep-learning-and-music-humanizing-piano-scores-longer-examples].  
