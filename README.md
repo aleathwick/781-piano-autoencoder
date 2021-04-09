@@ -2,12 +2,13 @@
 This project contains code, trained models, and audio examples from models trained to humanize piano music in light pop / blues / jazz genres. Humanization here means the prediction of velocities (how loud each note is). Future work may expand this scope to capturing temporal expression. The experiments were part of my BSc Honours project, completed in 2020.
 
 ### Audio Examples
-Audio examples of piano music humanized by the models from this project can be found [here on soundcloud][https://soundcloud.com/user-611170338/sets/deep-learning-and-music-humanizing-piano-scores-longer-examples].  
+Audio examples of piano music humanized by the models from this project can be found [here on soundcloud](https://soundcloud.com/user-611170338/sets/deep-learning-and-music-humanizing-piano-scores-longer-examples).  
 There is also a folder called 'audio_examples' in this repository. These files have names that end with one of the following:  
 * `No Humanization`: indicates there no human expression in the example, i.e. velocity = 64 for all notes.
 * `prediction_val_weights`: indicates velocities were predicted by a model using its best weights as measured by validation loss
 * `prediction_train_weights`: indicates velocities were predicted by a model using its best weights as measured by training loss
 * `original`: indicates the velocities of notes come from the original pianist (me)  
+
 File names contain a prefix 'ex***' which denotes the specific musical example in question.
 
 ### Inspiration: GrooVAE
