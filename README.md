@@ -7,7 +7,7 @@ There is also a folder called 'audio_examples' in this repository. These files h
 * `No Humanization`: indicates there no human expression in the example, i.e. velocity = 64 for all notes.
 * `prediction_val_weights`: indicates velocities were predicted by a model using its best weights as measured by validation loss
 * `prediction_train_weights`: indicates velocities were predicted by a model using its best weights as measured by training loss
-* `original`: indicates the velocities of notes come from the original pianist (me)
+* `original`: indicates the velocities of notes come from the original pianist (me)  
 File names contain a prefix 'ex***' which denotes the specific musical example in question.
 
 ### Inspiration: GrooVAE
